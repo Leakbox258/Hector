@@ -1,20 +1,21 @@
 #ifndef HEC_STRUCTURE_TD
 #define HEC_STRUCTURE_TD
 
-class HECContainer<string mnemonic, list<OpTrait> traits = []> :
+class HECContainer<string mnemonic, list<Trait> traits = []> :
   HECOp<mnemonic, !listconcat(traits, [
     NoRegionArguments,
     NoTerminator,
     SingleBlock
   ])> {
-  let regions = (region SizedRegion<1>: $body);
-  let assemblyFormat = "attr-dict $body";
+  let regions = (region SizedRegion<1>: $bodyRegion);
+  let assemblyFormat = "attr-dict $bodyRegion";
   
   let extraClassDeclaration = [{
     // return the body of a HEC container.
     Block *getBody() {
       return &getOperation()->getRegion(0).front();
     }
+    Region &body() { return getBodyRegion(); }
   }];
 }
 
@@ -31,12 +32,16 @@ def DesignOp : HECOp<"design", [
     containing a list of HEC component. This must include a "main" component.
   }];
   let arguments = (ins FlatSymbolRefAttr : $symbol);
-  let regions = (region SizedRegion<1>: $body);
+  let regions = (region SizedRegion<1>: $bodyRegion);
 
   let extraClassDeclaration = [{
     // return the body of a HEC design.
     Block *getBody() {
       return &getOperation()->getRegion(0).front();
+    }
+    Region &body() { return getBodyRegion(); }
+    ::mlir::FlatSymbolRefAttr symbol() {
+      return ::llvm::cast<::mlir::FlatSymbolRefAttr>((*this)->getAttr("symbol"));
     }
     
     // Returns the main component, representing the entry point of the design.
@@ -45,14 +50,14 @@ def DesignOp : HECOp<"design", [
     }
   }];
 
-  let assemblyFormat = "$symbol $body attr-dict";
-  let verifier = "return ::verify$cppClass(*this);";
+  let assemblyFormat = "$symbol $bodyRegion attr-dict";
+  let hasVerifier = 1;
 }
 
 def ComponentOp : HECOp<"component", [
     HasParent<"DesignOp">,
     Symbol,
-    FunctionLike,
+    FunctionOpInterface,
     /*IsolatedFromAbove,*/
     SingleBlock,
     NoTerminator
@@ -81,11 +86,12 @@ def ComponentOp : HECOp<"component", [
     ArrayAttr : $portNames,
     I64Attr : $numInPorts,
     StrAttr : $interfc,
-    StrAttr : $style
+    StrAttr : $style,
+    TypeAttrOf<FunctionType>:$function_type
   );
 
   let results = (outs);
-  let regions = (region SizedRegion<1> : $body);
+  let regions = (region SizedRegion<1> : $bodyRegion);
 
   let builders = [
     OpBuilder<(ins "StringAttr":$name, "ArrayRef<ComponentPortInfo>": $ports,
@@ -93,25 +99,55 @@ def ComponentOp : HECOp<"component", [
   ];
 
   let extraClassDeclaration = [{
-    using FunctionLike::front;
-    private:
-      friend class OpTrait::FunctionLike<ComponentOp>;
-      unsigned getNumFuncArguments() { return getType().getNumInputs(); }
-      unsigned getNumFuncResults() { return getType().getNumResults(); }
-    public:
-      Block *getBody() {
-        return &getOperation()->getRegion(0).front();
-      }
-      StateSetOp getStateSetOp();
-      GraphOp getGraphOp();
+    Block *getBody() {
+      return &getOperation()->getRegion(0).front();
+    }
+    Region &body() { return getBodyRegion(); }
+    StateSetOp getStateSetOp();
+    GraphOp getGraphOp();
+    ::mlir::ArrayAttr portNames() { return getPortNames(); }
+    uint64_t numInPorts() { return getNumInPorts(); }
+    ::llvm::StringRef interfc() { return getInterfc(); }
+    ::llvm::StringRef style() { return getStyle(); }
+
+    FunctionType getType() { return getFunctionType(); }
+    Type cloneTypeWith(TypeRange inputs, TypeRange results) {
+      return FunctionType::get((*this)->getContext(), inputs, results);
+    }
+    ArrayRef<Type> getArgumentTypes() {
+      return getFunctionType().getInputs();
+    }
+    ArrayRef<Type> getResultTypes() {
+      return getFunctionType().getResults();
+    }
+    Region *getCallableRegion() {
+      return isExternal() ? nullptr : &body();
+    }
+    ArrayAttr getArgAttrsAttr() {
+      return (*this)->getAttrOfType<ArrayAttr>("arg_attrs");
+    }
+    ArrayAttr getResAttrsAttr() {
+      return (*this)->getAttrOfType<ArrayAttr>("res_attrs");
+    }
+    void setArgAttrsAttr(ArrayAttr attrs) {
+      (*this)->setAttr("arg_attrs", attrs);
+    }
+    void setResAttrsAttr(ArrayAttr attrs) {
+      (*this)->setAttr("res_attrs", attrs);
+    }
+    Attribute removeArgAttrsAttr() {
+      return (*this)->removeAttr("arg_attrs");
+    }
+    Attribute removeResAttrsAttr() {
+      return (*this)->removeAttr("res_attrs");
+    }
   }];
-  let verifier = "return ::verify$cppClass(*this);";
-  let printer = "return ::print$cppClass(p, *this);";
-  let parser = "return ::parse$cppClass(parser, result);";
+  let hasVerifier = 1;
+  let hasCustomAssemblyFormat = 1;
 }
 
 def InstanceOp : HECOp<"instance", [
-    DeclareOpInterfaceMethods<OpAsmOpInterface>,
+    DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>,
     HasParent<"ComponentOp">
   ]> {
   let summary = "HEC Instance";
@@ -126,6 +162,8 @@ def InstanceOp : HECOp<"instance", [
   let extraClassDeclaration = [{
     /// Lookup the component for the symbol. This returns null on invalid name.
     ComponentOp getReferencedComponent();
+    ::llvm::StringRef instanceName() { return getInstanceName(); }
+    ::llvm::StringRef componentName() { return getComponentName(); }
   }];
 
   let arguments = (ins
@@ -137,11 +175,11 @@ def InstanceOp : HECOp<"instance", [
   let assemblyFormat = [{
     $instanceName $componentName attr-dict (`:` type($results)^)?
   }];
-  let verifier = "return ::verify$cppClass(*this);";
+  let hasVerifier = 1;
 }
 
 def PrimitiveOp : HECOp<"primitive", [
-  DeclareOpInterfaceMethods<OpAsmOpInterface>,
+  DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>,
   ParentOneOf<["ComponentOp", "DesignOp"]>
   ]> {
 
@@ -157,6 +195,9 @@ def PrimitiveOp : HECOp<"primitive", [
   let extraClassDeclaration = [{
     // Todo: Lookup the primitive component by name.
     SmallVector<ComponentPortInfo> getPrimitivePortInfo();
+    ::llvm::StringRef instanceName() { return getInstanceName(); }
+    ::mlir::StringAttr primitiveNameAttr() { return getPrimitiveNameAttr(); }
+    ::llvm::StringRef primitiveName() { return getPrimitiveName(); }
   }];
 
   let arguments = (ins
@@ -168,7 +209,7 @@ def PrimitiveOp : HECOp<"primitive", [
   let assemblyFormat = [{
     $instanceName ` ` `is` $primitiveName attr-dict (`:` type($results)^)? 
   }];
-  let verifier = "return ::verify$cppClass(*this);";
+  let hasVerifier = 1;
 }
 
 
@@ -189,6 +230,12 @@ def AssignOp : HECOp<"assign", [
     AnyType : $src,
     Optional<I1> : $guard
   );
+
+  let extraClassDeclaration = [{
+    ::mlir::Value dest() { return getDest(); }
+    ::mlir::Value src() { return getSrc(); }
+    ::mlir::Value guard() { return getGuard(); }
+  }];
   
   let assemblyFormat = [{
     $dest `=`  $src (`if` $guard^)?  attr-dict `:` type($src) `->` type($dest)
@@ -209,6 +256,11 @@ def WireOp : HECOp<"wire",[]> {
     AnyType : $out
   );
 
+  let extraClassDeclaration = [{
+    ::llvm::StringRef name() { return getName(); }
+    ::mlir::Value out() { return getOut(); }
+  }];
+
   let assemblyFormat = [{
     $name attr-dict `:` type($out)
   }];
@@ -224,6 +276,11 @@ def EnableOp : HECOp<"enable", []> {
     AnyType : $port,
     Optional<I1> : $cond
   );
+
+  let extraClassDeclaration = [{
+    ::mlir::Value port() { return getPort(); }
+    ::mlir::Value cond() { return getCond(); }
+  }];
 
   let assemblyFormat = [{
     $port (` ` `if` $cond^)? attr-dict `:` type($port)
@@ -241,6 +298,11 @@ def GoOp : HECOp<"go", []> {
     StrAttr : $name, 
     Optional<I1> : $cond
   );
+
+  let extraClassDeclaration = [{
+    ::llvm::StringRef name() { return getName(); }
+    ::mlir::Value cond() { return getCond(); }
+  }];
   
   let assemblyFormat = [{
     $name (` ` `if` $cond^)? attr-dict

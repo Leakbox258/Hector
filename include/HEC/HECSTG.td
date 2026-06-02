@@ -16,15 +16,17 @@ def StateSetOp : HECOp<"stateset", [
 
   }];
 
-  let regions = (region SizedRegion<1> : $body);
+  let regions = (region SizedRegion<1> : $bodyRegion);
 
   let extraClassDeclaration = [{
     /// Implement RegionKindInterface.
     static RegionKind getRegionKind(unsigned index) { return RegionKind::Graph; }
+    Block *getBody() { return &getOperation()->getRegion(0).front(); }
+    Region &body() { return getBodyRegion(); }
 
   }];
-  let assemblyFormat = "$body attr-dict";
-  let verifier = "return ::verify$cppClass(*this);";
+  let assemblyFormat = "$bodyRegion attr-dict";
+  let hasVerifier = 1;
 }
 
 def StateOp : HECOp<"state", [
@@ -41,15 +43,20 @@ def StateOp : HECOp<"state", [
   }];
 
   let arguments = (ins I1Attr : $initial);
-  let regions = (region SizedRegion<1> : $body);
+  let regions = (region SizedRegion<1> : $bodyRegion);
 
   let builders = [
     OpBuilder<(ins "StringAttr" : $name, "IntegerAttr" : $initial)>
   ];
 
-  let verifier = "return ::verify$cppClass(*this);";
-  let printer = "return ::print$cppClass(p, *this);";
-  let parser = "return ::parse$cppClass(parser, result);";
+  let extraClassDeclaration = [{
+    Block *getBody() { return &getOperation()->getRegion(0).front(); }
+    Region &body() { return getBodyRegion(); }
+    bool initial() { return getInitial(); }
+  }];
+
+  let hasVerifier = 1;
+  let hasCustomAssemblyFormat = 1;
 }
 
 def TransitionOp : HECOp<"transition", [
@@ -67,9 +74,13 @@ def TransitionOp : HECOp<"transition", [
     style.
   }];
 
-  let regions = (region SizedRegion<1> : $body);
-  let assemblyFormat = "$body attr-dict";
-  let verifier = "return ::verify$cppClass(*this);";
+  let regions = (region SizedRegion<1> : $bodyRegion);
+  let extraClassDeclaration = [{
+    Block *getBody() { return &getOperation()->getRegion(0).front(); }
+    Region &body() { return getBodyRegion(); }
+  }];
+  let assemblyFormat = "$bodyRegion attr-dict";
+  let hasVerifier = 1;
 }
   
 def GotoOp : HECOp<"goto", [
@@ -88,11 +99,16 @@ def GotoOp : HECOp<"goto", [
     Optional<I1> : $cond
   );
 
+  let extraClassDeclaration = [{
+    ::llvm::StringRef dest() { return getDest(); }
+    ::mlir::Value cond() { return getCond(); }
+  }];
+
   let assemblyFormat = [{
     $dest (` ` `if` $cond^)? attr-dict
   }];
 
-  let verifier = "return ::verify$cppClass(*this);";
+  let hasVerifier = 1;
 }
 
 def CDoneOp : HECOp<"cdone", [
@@ -110,8 +126,12 @@ def CDoneOp : HECOp<"cdone", [
     Variadic<AnyType> : $results
   );
 
+  let extraClassDeclaration = [{
+    ::mlir::Value cond() { return getCond(); }
+  }];
+
   let assemblyFormat = "attr-dict $cond `?` ($results^ `:` type($results))?";
-  let verifier = "return ::verify$cppClass(*this);";
+  let hasVerifier = 1;
 }
 
 def DoneOp : HECOp<"done", [
@@ -129,7 +149,7 @@ def DoneOp : HECOp<"done", [
   );
 
   let assemblyFormat = "attr-dict ($results^ `:` type($results))?";
-  let verifier = "return ::verify$cppClass(*this);";
+  let hasVerifier = 1;
 }
 
 

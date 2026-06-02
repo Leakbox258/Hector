@@ -7,11 +7,11 @@
 #include "llvm/ADT/ArrayRef.h"
 
 #include "mlir/IR/BuiltinOps.h"
+#include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/Matchers.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Support/LLVM.h"
-#include "mlir/IR/Identifier.h"
 #include "TOR/TOR.h"
 #include "TOR/TORTypes.h"
 #include "Schedule/CDFG.h"

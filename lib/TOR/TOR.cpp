@@ -3,8 +3,8 @@
 #include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/OpImplementation.h"
 #include "mlir/IR/DialectImplementation.h"
-#include "mlir/IR/FunctionImplementation.h"
 #include "mlir/IR/PatternMatch.h"
+#include "mlir/Interfaces/FunctionImplementation.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/TypeSwitch.h"
@@ -23,8 +23,8 @@ void tor::AddIOp::build(OpBuilder &odsBuilder,
                          Value lhs,
                          Value rhs) 
 {
-  IntegerType lhsType = lhs.getType().cast<IntegerType>();
-  IntegerType rhsType = rhs.getType().cast<IntegerType>();
+  IntegerType lhsType = llvm::cast<IntegerType>(lhs.getType());
+  IntegerType rhsType = llvm::cast<IntegerType>(rhs.getType());
   IntegerType resType = IntegerType::get(odsState.getContext(), std::max(lhsType.getWidth(), rhsType.getWidth()));
   odsState.addAttribute("starttime", odsBuilder.getIntegerAttr(odsBuilder.getIntegerType(32), 0));
   odsState.addAttribute("endtime", odsBuilder.getIntegerAttr(odsBuilder.getIntegerType(32), 0));
@@ -36,8 +36,8 @@ void tor::SubIOp::build(OpBuilder &odsBuilder,
                          Value lhs,
                          Value rhs) 
 {
-  IntegerType lhsType = lhs.getType().cast<IntegerType>();
-  IntegerType rhsType = rhs.getType().cast<IntegerType>();
+  IntegerType lhsType = llvm::cast<IntegerType>(lhs.getType());
+  IntegerType rhsType = llvm::cast<IntegerType>(rhs.getType());
   IntegerType resType = IntegerType::get(odsState.getContext(), std::max(lhsType.getWidth(), rhsType.getWidth()));
   odsState.addAttribute("starttime", odsBuilder.getIntegerAttr(odsBuilder.getIntegerType(32), 0));
   odsState.addAttribute("endtime", odsBuilder.getIntegerAttr(odsBuilder.getIntegerType(32), 0));
@@ -49,8 +49,8 @@ void tor::MulIOp::build(OpBuilder &odsBuilder,
                          Value lhs,
                          Value rhs) 
 {
-  IntegerType lhsType = lhs.getType().cast<IntegerType>();
-  IntegerType rhsType = rhs.getType().cast<IntegerType>();
+  IntegerType lhsType = llvm::cast<IntegerType>(lhs.getType());
+  IntegerType rhsType = llvm::cast<IntegerType>(rhs.getType());
   IntegerType resType = IntegerType::get(odsState.getContext(), std::min(64U, lhsType.getWidth() + rhsType.getWidth()));
 
   odsState.addAttribute("starttime", odsBuilder.getIntegerAttr(odsBuilder.getIntegerType(32), 0));
@@ -66,7 +66,8 @@ void tor::FuncOp::build(::mlir::OpBuilder &odsBuilder,
 {
   odsState.addAttribute(SymbolTable::getSymbolAttrName(),
                         odsBuilder.getStringAttr(name));
-  odsState.addAttribute(getTypeAttrName(), TypeAttr::get(type));
+  odsState.addAttribute(getFunctionTypeAttrName(odsState.name),
+                        TypeAttr::get(type));
   odsState.attributes.append(attrs.begin(), attrs.end());
   odsState.addRegion();
 }
@@ -74,8 +75,9 @@ void tor::FuncOp::build(::mlir::OpBuilder &odsBuilder,
 static void print(::mlir::OpAsmPrinter &p, tor::FuncOp op)
 {
   FunctionType funcType = op.getType();
-  mlir::impl::printFunctionLikeOp(p, op, funcType.getInputs(), true,
-                                  funcType.getResults());
+  function_interface_impl::printFunctionOp(
+      p, op, /*isVariadic=*/true,
+      op.getFunctionTypeAttrName(), {}, {});
   //p.printOptionalAttrDict(op->getAttrs());
 }
 
@@ -83,12 +85,14 @@ static ::mlir::ParseResult parseFuncOp(::mlir::OpAsmParser &parser,
                                        ::mlir::OperationState &result)
 {
   auto buildFuncType = [](Builder &builder, ArrayRef<Type> argTypes,
-                          ArrayRef<Type> results, mlir::impl::VariadicFlag,
-                          std::string &)
+                          ArrayRef<Type> results,
+                          function_interface_impl::VariadicFlag, std::string &)
   {
     return builder.getFunctionType(argTypes, results);
   };
-  if (mlir::impl::parseFunctionLikeOp(parser, result, true, buildFuncType))
+  if (function_interface_impl::parseFunctionOp(
+          parser, result, true, FuncOp::getFunctionTypeAttrName(result.name),
+          buildFuncType, {}, {}))
     return failure();
   // Parse the optional attribute list.
   if (parser.parseOptionalAttrDict(result.attributes))
@@ -99,7 +103,7 @@ static ::mlir::ParseResult parseFuncOp(::mlir::OpAsmParser &parser,
 static ::mlir::LogicalResult verifyFuncOp(tor::FuncOp op)
 {
   auto fnInputTypes = op.getType().getInputs();
-  Block &entryBlock = op.front();
+  Block &entryBlock = op.getBody().front();
 
   for (unsigned i = 0, e = entryBlock.getNumArguments(); i != e; ++i)
   {
@@ -131,7 +135,7 @@ static void print(OpAsmPrinter &p, tor::ReturnOp op)
 
 static ParseResult parseReturnOp(OpAsmParser &parser, OperationState &result)
 {
-  SmallVector<OpAsmParser::OperandType, 1> opInfo;
+  SmallVector<OpAsmParser::UnresolvedOperand, 1> opInfo;
   SmallVector<Type, 1> types;
   ::mlir::IntegerAttr timeAttr;
   llvm::SMLoc loc = parser.getCurrentLocation();
@@ -151,7 +155,7 @@ static LogicalResult verifyReturnOp(tor::ReturnOp op)
 
   StringRef parentName = parent->getName().getStringRef();
 
-  if (parentName.equals(StringRef("tor.func")))
+  if (parentName == "tor.func")
   {
     auto function = dyn_cast<tor::FuncOp>(parent);
     // if (!function)
@@ -194,8 +198,6 @@ static ParseResult parseTimeGraphOp(OpAsmParser &parser, OperationState &result)
   ::mlir::IntegerAttr starttime;
   ::mlir::IntegerAttr endtime;
 
-  OpAsmParser::OperandType cond;
-
   if (/*parser.parseKeyword("on") || */ parser.parseLParen() ||
       parser.parseAttribute(starttime,
                             parser.getBuilder().getIntegerType(32),
@@ -210,7 +212,7 @@ static ParseResult parseTimeGraphOp(OpAsmParser &parser, OperationState &result)
   }
 
   if (/*parser.parseKeyword("then") ||*/
-      parser.parseRegion(*region, {}, {}))
+      parser.parseRegion(*region))
   {
     return failure();
   }
@@ -277,7 +279,7 @@ static ParseResult parseIfOp(OpAsmParser &parser, OperationState &result)
   ::mlir::IntegerAttr endtime;
 
   auto &builder = parser.getBuilder();
-  OpAsmParser::OperandType cond;
+  OpAsmParser::UnresolvedOperand cond;
 
   Type i1Type = builder.getIntegerType(1);
   if (parser.parseOperand(cond) ||
@@ -304,7 +306,7 @@ static ParseResult parseIfOp(OpAsmParser &parser, OperationState &result)
   }
 
   if (parser.parseKeyword("then") ||
-      parser.parseRegion(*thenRegion, {}, {}))
+      parser.parseRegion(*thenRegion))
   {
     return failure();
   }
@@ -312,7 +314,7 @@ static ParseResult parseIfOp(OpAsmParser &parser, OperationState &result)
 
   if (!parser.parseOptionalKeyword("else"))
   {
-    if (parser.parseRegion(*elseRegion, {}, {}))
+    if (parser.parseRegion(*elseRegion))
     {
       return failure();
     }
@@ -390,11 +392,12 @@ static void print(OpAsmPrinter &p, tor::ForOp op)
 static ParseResult parseForOp(OpAsmParser &parser, OperationState &result)
 {
   auto &builder = parser.getBuilder();
-  OpAsmParser::OperandType inductionVariable, lb, ub, step;
+  OpAsmParser::Argument inductionVariable;
+  OpAsmParser::UnresolvedOperand lb, ub, step;
   ::mlir::IntegerAttr starttime, endtime;
 
   // Parse the induction variable followed by '='.
-  if (parser.parseRegionArgument(inductionVariable) || parser.parseEqual())
+  if (parser.parseArgument(inductionVariable) || parser.parseEqual())
     return failure();
 
   // Parse loop bounds.
@@ -443,8 +446,8 @@ static ParseResult parseForOp(OpAsmParser &parser, OperationState &result)
     return failure();
 
   // Parse the optional initial iteration arguments.
-  SmallVector<OpAsmParser::OperandType, 4> regionArgs, operands;
-  SmallVector<Type, 4> argTypes;
+  SmallVector<OpAsmParser::Argument, 4> regionArgs;
+  SmallVector<OpAsmParser::UnresolvedOperand, 4> operands;
   regionArgs.push_back(inductionVariable);
 
   if (succeeded(parser.parseOptionalKeyword("iter_args")))
@@ -464,17 +467,18 @@ static ParseResult parseForOp(OpAsmParser &parser, OperationState &result)
   Type iterType = builder.getIntegerType(std::max(lbType.getIntOrFloatBitWidth(), 
       std::max(ubType.getIntOrFloatBitWidth(), stepType.getIntOrFloatBitWidth())));
 
-  argTypes.push_back(iterType);
-  // Loop carried variables
-  argTypes.append(result.types.begin(), result.types.end());
+  regionArgs[0].type = iterType;
+  for (auto &&it : llvm::zip(llvm::drop_begin(regionArgs), result.types))
+    std::get<0>(it).type = std::get<1>(it);
+
   // Parse the body region.
   Region *body = result.addRegion();
-  if (regionArgs.size() != argTypes.size())
+  if (regionArgs.size() != result.types.size() + 1)
     return parser.emitError(
         parser.getNameLoc(),
         "mismatch in number of loop-carried values and defined values");
 
-  if (parser.parseRegion(*body, regionArgs, argTypes))
+  if (parser.parseRegion(*body, regionArgs))
     return failure();
 
   tor::ForOp::ensureTerminator(*body, builder, result.location);
@@ -508,13 +512,14 @@ static void print(OpAsmPrinter &p, tor::WhileOp op)
 
 static ParseResult parseWhileOp(OpAsmParser &parser, OperationState &result)
 {
-  SmallVector<OpAsmParser::OperandType, 4> regionArgs, operands;
+  SmallVector<OpAsmParser::Argument, 4> regionArgs;
+  SmallVector<OpAsmParser::UnresolvedOperand, 4> operands;
   Region *before = result.addRegion();
   Region *after = result.addRegion();
 
   OptionalParseResult listResult =
       parser.parseOptionalAssignmentList(regionArgs, operands);
-  if (listResult.hasValue() && failed(listResult.getValue()))
+  if (listResult.has_value() && failed(*listResult))
     return failure();
 
   ::mlir::IntegerAttr starttime, endtime;
@@ -552,8 +557,11 @@ static ParseResult parseWhileOp(OpAsmParser &parser, OperationState &result)
                                     result.operands)))
     return failure();
 
+  for (auto &&it : llvm::zip(regionArgs, functionType.getInputs()))
+    std::get<0>(it).type = std::get<1>(it);
+
   return failure(
-      parser.parseRegion(*before, regionArgs, functionType.getInputs()) ||
+      parser.parseRegion(*before, regionArgs) ||
       parser.parseKeyword("do") || parser.parseRegion(*after) ||
       parser.parseOptionalAttrDictWithKeyword(result.attributes));
 }
@@ -628,6 +636,67 @@ static LogicalResult verifyWhileOp(tor::WhileOp op)
       "expects the 'after' region to terminate with 'tor.yield'");
   return success(afterTerminator != nullptr);
 }
+
+LogicalResult tor::DesignOp::verify() { return verifyDesignOp(*this); }
+
+ParseResult tor::FuncOp::parse(OpAsmParser &parser, OperationState &result)
+{
+  return parseFuncOp(parser, result);
+}
+
+void tor::FuncOp::print(OpAsmPrinter &p) { ::print(p, *this); }
+
+LogicalResult tor::FuncOp::verify() { return verifyFuncOp(*this); }
+
+ParseResult tor::ReturnOp::parse(OpAsmParser &parser, OperationState &result)
+{
+  return parseReturnOp(parser, result);
+}
+
+void tor::ReturnOp::print(OpAsmPrinter &p) { ::print(p, *this); }
+
+LogicalResult tor::ReturnOp::verify() { return verifyReturnOp(*this); }
+
+ParseResult tor::TimeGraphOp::parse(OpAsmParser &parser,
+                                    OperationState &result)
+{
+  return parseTimeGraphOp(parser, result);
+}
+
+void tor::TimeGraphOp::print(OpAsmPrinter &p) { ::print(p, *this); }
+
+LogicalResult tor::StartTimeOp::verify() { return verifyStartTimeOp(*this); }
+
+LogicalResult tor::EndTimeOp::verify() { return verifyEndTimeOp(*this); }
+
+LogicalResult tor::SuccTimeOp::verify() { return verifySuccTimeOp(*this); }
+
+ParseResult tor::IfOp::parse(OpAsmParser &parser, OperationState &result)
+{
+  return parseIfOp(parser, result);
+}
+
+void tor::IfOp::print(OpAsmPrinter &p) { ::print(p, *this); }
+
+LogicalResult tor::IfOp::verify() { return verifyIfOp(*this); }
+
+ParseResult tor::ForOp::parse(OpAsmParser &parser, OperationState &result)
+{
+  return parseForOp(parser, result);
+}
+
+void tor::ForOp::print(OpAsmPrinter &p) { ::print(p, *this); }
+
+LogicalResult tor::ForOp::verify() { return verifyForOp(*this); }
+
+ParseResult tor::WhileOp::parse(OpAsmParser &parser, OperationState &result)
+{
+  return parseWhileOp(parser, result);
+}
+
+void tor::WhileOp::print(OpAsmPrinter &p) { ::print(p, *this); }
+
+LogicalResult tor::WhileOp::verify() { return verifyWhileOp(*this); }
 
 #define GET_OP_CLASSES
 #include "TOR/TOR.cpp.inc"

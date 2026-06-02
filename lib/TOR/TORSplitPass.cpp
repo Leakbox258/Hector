@@ -1,23 +1,22 @@
 #include "TOR/PassDetail.h"
-#include "mlir/Analysis/Utils.h"
+#include "mlir/Dialect/Affine/Analysis/Utils.h"
 #include "llvm/ADT/MapVector.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
 
-#include "mlir/Dialect/SCF/SCF.h"
-#include "mlir/Dialect/StandardOps/IR/Ops.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "TOR/TOR.h"
 #include "TOR/TORDialect.h"
 
 #include "mlir/Pass/Pass.h"
-#include "mlir/IR/BlockAndValueMapping.h"
+#include "mlir/IR/IRMapping.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/PatternMatch.h"
 #include <mlir/Transforms/DialectConversion.h>
 #include "mlir/Transforms/Passes.h"
-#include "mlir/Transforms/Utils.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
 #include <map>
@@ -102,7 +101,8 @@ namespace mlir {
             LogicalResult
             matchAndRewrite(tor::FuncOp funcOp, PatternRewriter &rewriter) const override {
                 if (funcOp->hasAttr("strategy")) {
-                    if (auto str = funcOp->getAttr("strategy").dyn_cast<StringAttr>()) {
+                    if (auto str = llvm::dyn_cast<StringAttr>(
+                            funcOp->getAttr("strategy"))) {
                         if (str.getValue() == "mixed") {
                         } else {
                             return failure();
@@ -139,15 +139,15 @@ namespace mlir {
                             MAX_INDEX = std::max(MAX_INDEX, succ.time());
                             for (unsigned i = 0; i < succ.points().size(); i++) {
                                 auto from = succ.points()[i];
-                                auto comp_edge = succ.edges()[i].cast<DictionaryAttr>();
+                                auto comp_edge = llvm::cast<DictionaryAttr>(succ.edges()[i]);
                                 bool pipeline = comp_edge.get("pipeline").operator bool();
                                 if (pipeline) {
                                     succ->dump();
                                 }
                                 foundPipeline |= pipeline;
                                 auto edge_info = comp_edge.get("type");
-                                int index = from.cast<IntegerAttr>().getInt();
-                                auto info = edge_info.cast<StringAttr>().getValue().str();
+                                int index = llvm::cast<IntegerAttr>(from).getInt();
+                                auto info = llvm::cast<StringAttr>(edge_info).getValue().str();
                                 if (info.find("dynamic") != StringRef::npos) {
                                     foundDynamic = true;
                                     timeGraph[index].push_back(
@@ -353,7 +353,7 @@ bind_operation(sop.starttime(), sop.endtime(), op);
                         for (unsigned idx = 0; idx != op->getNumOperands(); ++idx) {
                             auto val = op->getOperand(idx);
 //                            val.dump();
-                            if (auto arg = val.dyn_cast<BlockArgument>()) {
+                            if (auto arg = llvm::dyn_cast<BlockArgument>(val)) {
                                 arg.dump();
                                 std::cerr << "~~~";
                                 if (outline_ops.find(arg.getOwner()->getParentOp()) != outline_ops.end()) {
@@ -448,15 +448,15 @@ bind_operation(sop.starttime(), sop.endtime(), op);
                     Operation *lastOp = NULL;
                     /*for (unsigned idx = 0; idx < argValues.size(); ++idx) {
                         if (!lastOp) {
-                            if (!argValues[idx].isa<BlockArgument>()) {
+                            if (!llvm::isa<BlockArgument>(argValues[idx])) {
                                 lastOp = argValues[idx].getDefiningOp();
                             } else {
-                                auto blockArg = argValues[idx].dyn_cast<BlockArgument>();
+                                auto blockArg = llvm::dyn_cast<BlockArgument>(argValues[idx]);
                                 lastOp = &(blockArg.getOwner()->front());
                             }
                             continue;
                         }
-                        if (argValues[idx].isa<BlockArgument>()) {
+                        if (llvm::isa<BlockArgument>(argValues[idx])) {
                             continue;
                         }
                         Operation *newOp = argValues[idx].getDefiningOp();
@@ -556,7 +556,7 @@ bind_operation(sop.starttime(), sop.endtime(), op);
                             }
                             continue;
                             if (!bop) {
-                                if (auto arg = val.dyn_cast<BlockArgument>()) {
+                                if (auto arg = llvm::dyn_cast<BlockArgument>(val)) {
 
                                 }
                                 continue;
@@ -603,7 +603,7 @@ bind_operation(sop.starttime(), sop.endtime(), op);
                         std::vector<Attribute> edge_array;
                         std::vector<Attribute> node_array;
                         for (size_t j = 0; j < succ.points().size(); j++) {
-                            if (succ.points()[j].cast<IntegerAttr>().getInt() != edge->from) {
+                            if (llvm::cast<IntegerAttr>(succ.points()[j]).getInt() != edge->from) {
                                 edge_array.push_back(succ.edges()[j]);
                                 node_array.push_back(succ.points()[j]);
                             }
@@ -638,8 +638,9 @@ bind_operation(sop.starttime(), sop.endtime(), op);
                             mlir::IntegerType::get(getContext(), 32, mlir::IntegerType::Signless),
                             start));
                     llvm::SmallVector<NamedAttribute, 8> dict_attr;
-                    dict_attr.push_back(std::make_pair(Identifier::get("type", getContext()),
-                                                       StringAttr::get(getContext(), "static-call")));
+                    dict_attr.push_back(NamedAttribute(
+                        StringAttr::get(getContext(), "type"),
+                        StringAttr::get(getContext(), "static-call")));
                     new_attr.push_back(DictionaryAttr::get(getContext(), dict_attr));
                     rewriter.setInsertionPoint(succOp[end]);
                     auto newSuccOp = rewriter.create<tor::SuccTimeOp>(succOp[end]->getLoc(), end,
@@ -763,9 +764,9 @@ bind_operation(sop.starttime(), sop.endtime(), op);
                   auto succ = cast<tor::SuccTimeOp>(succOp[edge.to]);
                   std::vector<Attribute> edge_array;
                   for (size_t j = 0; j < succ.points().size(); j++) {
-                  if (succ.points()[j].cast<IntegerAttr>().getInt() == i) {
+                  if (llvm::cast<IntegerAttr>(succ.points()[j]).getInt() == i) {
                   std::vector<NamedAttribute> dict;
-                  for (auto entry : succ.edgesAttr()[j].cast<DictionaryAttr>()) {
+                  for (auto entry : llvm::cast<DictionaryAttr>(succ.edgesAttr()[j])) {
                   if (entry.first.str() != "type") {
                   dict.push_back(entry);
                   } else {
@@ -791,14 +792,15 @@ bind_operation(sop.starttime(), sop.endtime(), op);
 
 #undef TIME_NODE
     }
-    struct SplitPass : public TORSplitBase<SplitPass> {
+    struct SplitPass : public impl::TORSplitBase<SplitPass> {
         void runOnOperation() override {
             mlir::ModuleOp m = getOperation();
             if (m.walk([&](tor::FuncOp op) {
                         mlir::RewritePatternSet patterns(&getContext());
                         patterns.insert<split::SplitSchedule>(op.getContext());
 
-                        if (failed(applyOpPatternsAndFold(op, std::move(patterns))))
+                        SmallVector<Operation *> ops{op.getOperation()};
+                        if (failed(applyOpPatternsAndFold(ops, std::move(patterns))))
                             return WalkResult::advance();
 
                         return WalkResult::advance();

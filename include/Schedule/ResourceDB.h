@@ -1,8 +1,8 @@
 #ifndef SCHEDULE_RESOURCEDB_H
 #define SCHEDULE_RESOURCEDB_H
 
-#include "mlir/Dialect/SCF/SCF.h"
-#include "mlir/Dialect/StandardOps/IR/Ops.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/Operation.h"
 
 #include "nlohmann/json.hpp"
@@ -48,7 +48,7 @@ public:
     if (NameToID.find(name) != NameToID.end())
       return NameToID[name];
 
-    if (auto callOp = llvm::dyn_cast<mlir::CallOp>(op)) {
+    if (auto callOp = llvm::dyn_cast<mlir::tor::CallOp>(op)) {
       auto func = callOp.callee().str();
       if (NameToID.find(func) != NameToID.end())
         return NameToID[func];

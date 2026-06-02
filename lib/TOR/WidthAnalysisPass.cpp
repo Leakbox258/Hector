@@ -9,8 +9,8 @@
 
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "mlir/Transforms/DialectConversion.h"
-#include "mlir/Dialect/SCF/SCF.h"
-#include "mlir/Dialect/StandardOps/IR/Ops.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 
 #include "TOR/TORDialect.h"
 #include "TOR/Passes.h"
@@ -279,7 +279,7 @@ private:
   }
 
   void buildUpdateGraph(Block *block, ValueScopedMapT &ValueToRange) {
-    auto IntegerPred = [&] (Value v) {return v.getType().isa<IntegerType>();};
+    auto IntegerPred = [&] (Value v) {return llvm::isa<IntegerType>(v.getType());};
 
     for (auto &op : block->getOperations()) {
       // TODO complex predicate involving and, or. No tor.and/or
@@ -478,11 +478,11 @@ private:
       if (rangeOp->type == RangeOp::TOR_OP) {
         if (auto constOp = llvm::dyn_cast<ConstantOp>(rangeOp->op)) {
           // range of result is fixed
-          if (constOp.getValue().isa<FloatAttr>())
+          if (llvm::isa<FloatAttr>(constOp.getValue()))
             continue;
           DataRange *result = rangeOp->results[0];
-          result->rangeDown = RangeInfo::getConst(constOp.getValue().cast<IntegerAttr>().getInt());
-          result->rangeUp = RangeInfo::getConst(constOp.getValue().cast<IntegerAttr>().getInt());
+          result->rangeDown = RangeInfo::getConst(llvm::cast<IntegerAttr>(constOp.getValue()).getInt());
+          result->rangeUp = RangeInfo::getConst(llvm::cast<IntegerAttr>(constOp.getValue()).getInt());
           for (auto user : result->users)
             worklist.insert(user);
         } else if (auto loadOp = llvm::dyn_cast<tor::LoadOp>(rangeOp->op)) {
@@ -499,7 +499,7 @@ private:
           }
 
           // range of loaded value can be computed
-          if (!memrefTy.getElementType().isa<IntegerType>())
+          if (!llvm::isa<IntegerType>(memrefTy.getElementType()))
             continue;
           
           int width = memrefTy.getElementTypeBitWidth();
@@ -512,7 +512,7 @@ private:
           auto memrefTy = storeOp.getMemRefType();
           
           auto shape = memrefTy.getShape();
-          int offset = memrefTy.getElementType().isa<IntegerType>();
+          int offset = llvm::isa<IntegerType>(memrefTy.getElementType());
           for (auto idx : llvm::enumerate(storeOp.getIndices())) {
             if (shape[idx.index()] == -1) // dynamic shape
               continue;
@@ -522,7 +522,7 @@ private:
           }
 
           // range of stored value can be computed
-          if (memrefTy.getElementType().isa<FloatType>())
+          if (llvm::isa<FloatType>(memrefTy.getElementType()))
             continue;
           
           int width = memrefTy.getElementTypeBitWidth();
@@ -612,7 +612,7 @@ private:
     updateUp(yRange, intersection_r(yRange->rangeDown, union_r(ytrueRange->rangeUp, yfalseRange->rangeUp)));
 
     auto cmpIOp = llvm::dyn_cast<tor::CmpIOp>(op->op);
-    switch (cmpIOp.predicate()) {
+    switch (cmpIOp.getPredicate()) {
       case tor::CmpIPredicate::sgt:
         // x > y
         updateDown(ytrueRange, intersection_r(ytrueRange->rangeUp, 
@@ -727,7 +727,7 @@ private:
     assert(designOp && "Must included in a tor.design");
     designOp.walk(
       [&] (ConstantOp constOp) {
-        if (constOp->getAttr("value").isa<FloatAttr>())
+        if (llvm::isa<FloatAttr>(constOp->getAttr("value")))
           WalkResult::skip();
         RangeOps.push_back(RangeOp::getFromOp(constOp.getOperation()));
         auto *curOp = RangeOps.back().get();
@@ -765,7 +765,7 @@ void reduceWidth(tor::FuncOp funcOp) {
   RangeAnalysis *analysis = new RangeAnalysis(funcOp.getOperation());
 
   auto updateType = [&] (Value v) {
-    if (auto ty = v.getType().dyn_cast<IntegerType>()) {
+    if (auto ty = llvm::dyn_cast<IntegerType>(v.getType())) {
       int originalWidth = ty.getWidth();
       int newWidth = analysis->queryRange(v).getWidthNeeded();
       if (newWidth < originalWidth)
@@ -787,7 +787,7 @@ void reduceWidth(tor::FuncOp funcOp) {
       }
 
       for (auto result : op->getResults())
-        if (auto ty = result.getType().dyn_cast<IntegerType>()) {
+        if (auto ty = llvm::dyn_cast<IntegerType>(result.getType())) {
           int originalWidth = ty.getWidth();
           int newWidth = analysis->queryRange(result).getWidthNeeded();
           if (newWidth < originalWidth)
@@ -808,7 +808,7 @@ struct FuncOpAnalysisPattern : public OpRewritePattern<tor::FuncOp> {
   {
     if (op->getAttr("bitwidth-reduced"))
       return failure();
-    rewriter.updateRootInPlace(op, 
+    rewriter.modifyOpInPlace(op.getOperation(), 
     [&] {
       reduceWidth(op);
       op->setAttr("bitwidth-reduced", IntegerAttr::get(IntegerType::get(getContext(), 32), 1));
@@ -817,7 +817,7 @@ struct FuncOpAnalysisPattern : public OpRewritePattern<tor::FuncOp> {
   }
 };
 
-struct WidthAnalysisPass : public WidthAnalysisBase<WidthAnalysisPass> {
+struct WidthAnalysisPass : public impl::WidthAnalysisBase<WidthAnalysisPass> {
   void runOnOperation() override {
     tor::DesignOp designOp = getOperation();
 
@@ -826,7 +826,8 @@ struct WidthAnalysisPass : public WidthAnalysisBase<WidthAnalysisPass> {
 
     if (designOp.walk(
       [&] (tor::FuncOp op) {
-        if (failed(applyOpPatternsAndFold(op, std::move(patterns))))
+        SmallVector<Operation *> ops{op.getOperation()};
+        if (failed(applyOpPatternsAndFold(ops, std::move(patterns))))
           return WalkResult::interrupt();
         return WalkResult::advance();
       }
@@ -835,9 +836,9 @@ struct WidthAnalysisPass : public WidthAnalysisBase<WidthAnalysisPass> {
     
     designOp.walk(
       [&] (ConstantOp constOp) {
-        if (!constOp.getValue().isa<IntegerAttr>())
+        if (!llvm::isa<IntegerAttr>(constOp.getValue()))
           return WalkResult::skip();
-        int64_t val = constOp.getValue().cast<IntegerAttr>().getInt();
+        int64_t val = llvm::cast<IntegerAttr>(constOp.getValue()).getInt();
         RangeInfo info = RangeInfo::getConst(val);
 
         int width = info.getWidthNeeded();

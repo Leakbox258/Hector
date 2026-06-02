@@ -6,10 +6,10 @@
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/DialectImplementation.h"
-#include "mlir/IR/FunctionImplementation.h"
 #include "mlir/IR/OpImplementation.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/SymbolTable.h"
+#include "mlir/Interfaces/FunctionImplementation.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallSet.h"
@@ -42,7 +42,7 @@ GraphOp ComponentOp::getGraphOp() {
 
 // Returns the type of a given component as a function type.
 static FunctionType getComponentType(ComponentOp component) {
-    return component.getTypeAttr().getValue().cast<FunctionType>();
+    return component.getFunctionType();
 }
 
 // Returns the port information for a given component
@@ -56,7 +56,8 @@ SmallVector<ComponentPortInfo> mlir::hec::getComponentPortInfo(Operation *op) {
     SmallVector<ComponentPortInfo> results;
     for (uint64_t i = 0, e = portNamesAttr.size(); i != e; ++i) {
         auto dir = i < numInPorts ? PortDirection::INPUT : PortDirection::OUTPUT;
-        results.push_back({portNamesAttr[i].cast<StringAttr>(), portTypes[i], dir});
+        results.emplace_back(llvm::cast<StringAttr>(portNamesAttr[i]),
+                             portTypes[i], dir);
     }
     return results;
 }
@@ -127,18 +128,21 @@ static void printComponentOp(OpAsmPrinter &p, ComponentOp &op) {
 /// port names to `attrName`.
 static ParseResult
 parsePortDefList(OpAsmParser &parser, OperationState &result,
-                 SmallVectorImpl<OpAsmParser::OperandType> &ports,
+                 SmallVectorImpl<OpAsmParser::Argument> &ports,
                  SmallVectorImpl<Type> &portTypes) {
     if (parser.parseLParen())
         return failure();
 
+    if (succeeded(parser.parseOptionalRParen()))
+        return success();
+
     do {
-        OpAsmParser::OperandType port;
+        OpAsmParser::Argument port;
         Type portType;
-        if (failed(parser.parseOptionalRegionArgument(port)) ||
-            failed(parser.parseOptionalColon()) ||
+        if (parser.parseArgument(port) ||
+            parser.parseColon() ||
             failed(parser.parseType(portType)))
-            continue;
+            return failure();
         ports.push_back(port);
         portTypes.push_back(portType);
     } while (succeeded(parser.parseOptionalComma()));
@@ -149,7 +153,7 @@ parsePortDefList(OpAsmParser &parser, OperationState &result,
 /// Parses the signature of a HEC component.
 static ParseResult
 parseComponentSignature(OpAsmParser &parser, OperationState &result,
-                        SmallVectorImpl<OpAsmParser::OperandType> &ports,
+                        SmallVectorImpl<OpAsmParser::Argument> &ports,
                         SmallVectorImpl<Type> &portTypes) {
     if (parsePortDefList(parser, result, ports, portTypes))
         return failure();
@@ -165,8 +169,8 @@ parseComponentSignature(OpAsmParser &parser, OperationState &result,
     // just inferred from the SSA names of the component.
     SmallVector<Attribute> portNames(ports.size());
     llvm::transform(ports, portNames.begin(), [&](auto port) -> StringAttr {
-        StringRef name = port.name;
-        if (name.startswith("%"))
+        StringRef name = port.ssaName.name;
+        if (name.starts_with("%"))
             name = name.drop_front();
         return StringAttr::get(context, name);
     });
@@ -190,7 +194,7 @@ static ParseResult parseComponentOp(OpAsmParser &parser,
                                result.attributes))
         return failure();
 
-    SmallVector<OpAsmParser::OperandType> ports;
+    SmallVector<OpAsmParser::Argument> ports;
     SmallVector<Type> portTypes;
     if (parseComponentSignature(parser, result, ports, portTypes))
         return failure();
@@ -199,7 +203,8 @@ static ParseResult parseComponentOp(OpAsmParser &parser,
     // arguments so they may be accessed within the component.
     auto type =
             parser.getBuilder().getFunctionType(portTypes, /*resultTypes=*/{});
-    result.addAttribute(ComponentOp::getTypeAttrName(), TypeAttr::get(type));
+    result.addAttribute(ComponentOp::getFunctionTypeAttrName(result.name),
+                        TypeAttr::get(type));
 
     if (parser.parseLBrace() || parser.parseKeyword("interface") ||
         parser.parseEqual())
@@ -218,7 +223,10 @@ static ParseResult parseComponentOp(OpAsmParser &parser,
     result.addAttribute("style", style);
 
     auto *body = result.addRegion();
-    if (parser.parseRegion(*body, ports, portTypes))
+    for (auto &&it : llvm::zip(ports, portTypes))
+        std::get<0>(it).type = std::get<1>(it);
+
+    if (parser.parseRegion(*body, ports))
         return failure();
 
     if (body->empty())
@@ -227,7 +235,7 @@ static ParseResult parseComponentOp(OpAsmParser &parser,
     mlir::NamedAttrList additionalAttrs;
     if (!parser.parseOptionalAttrDict(additionalAttrs)) {
         for (auto attr : additionalAttrs) {
-            result.addAttribute(attr.first, attr.second);
+            result.addAttribute(attr.getName(), attr.getValue());
         }
     }
 
@@ -329,7 +337,8 @@ void ComponentOp::build(OpBuilder &builder, OperationState &result,
 
     // Build the function type of the component.
     auto functionType = builder.getFunctionType(portTypes, {});
-    result.addAttribute(getTypeAttrName(), TypeAttr::get(functionType));
+    result.addAttribute(getFunctionTypeAttrName(result.name),
+                        TypeAttr::get(functionType));
 
     // Record the port names and number of input ports of the component.
     result.addAttribute("portNames", builder.getArrayAttr(portNames));
@@ -345,7 +354,8 @@ void ComponentOp::build(OpBuilder &builder, OperationState &result,
     regionBody->push_back(block);
 
     // Add all ports to the body block.
-    block->addArguments(portTypes);
+    SmallVector<Location> locs(portTypes.size(), result.location);
+    block->addArguments(portTypes, locs);
 
     // Insert the WiresOp and ControlOp.
     IRRewriter::InsertionGuard guard(builder);
@@ -378,7 +388,7 @@ void InstanceOp::getAsmResultNames(OpAsmSetValueNameFn setNameFn) {
 
     std::string prefix = instanceName().str() + ".";
     for (size_t i = 0, e = portNames.size(); i != e; ++i) {
-        StringRef portName = portNames[i].cast<StringAttr>().getValue();
+        StringRef portName = llvm::cast<StringAttr>(portNames[i]).getValue();
         setNameFn(getResult(i), prefix + portName.str());
     }
 }
@@ -471,20 +481,20 @@ SmallVector<ComponentPortInfo> PrimitiveOp::getPrimitivePortInfo() {
     } else if (name.getValue() == "add_float" || name.getValue() == "sub_float" ||
                name.getValue() == "mul_float" || name.getValue() == "div_float") {
         results.push_back({StringAttr::get((*this)->getContext(), "operand0"),
-                           FloatType::getF32((*this)->getContext()),
+                           Float32Type::get((*this)->getContext()),
                            PortDirection::INPUT});
         results.push_back({StringAttr::get((*this)->getContext(), "operand1"),
-                           FloatType::getF32((*this)->getContext()),
+                           Float32Type::get((*this)->getContext()),
                            PortDirection::INPUT});
         results.push_back({StringAttr::get((*this)->getContext(), "result"),
-                           FloatType::getF32((*this)->getContext()),
+                           Float32Type::get((*this)->getContext()),
                            PortDirection::OUTPUT});
     } else if (name.getValue().contains("cmp_float")) {
         results.push_back({StringAttr::get((*this)->getContext(), "operand0"),
-                           FloatType::getF32((*this)->getContext()),
+                           Float32Type::get((*this)->getContext()),
                            PortDirection::INPUT});
         results.push_back({StringAttr::get((*this)->getContext(), "operand1"),
-                           FloatType::getF32((*this)->getContext()),
+                           Float32Type::get((*this)->getContext()),
                            PortDirection::INPUT});
         results.push_back({StringAttr::get((*this)->getContext(), "result"),
                            IntegerType::get((*this)->getContext(), 1),
@@ -494,17 +504,17 @@ SmallVector<ComponentPortInfo> PrimitiveOp::getPrimitivePortInfo() {
                            IntegerType::get((*this)->getContext(), 32),
                            PortDirection::INPUT});
         results.push_back({StringAttr::get((*this)->getContext(), "result"),
-                           FloatType::getF32((*this)->getContext()),
+                           Float32Type::get((*this)->getContext()),
                            PortDirection::OUTPUT});
     } else if (name.getValue() == "fptosi") {
         results.push_back({StringAttr::get((*this)->getContext(), "operand"),
-                           FloatType::getF32((*this)->getContext()),
+                           Float32Type::get((*this)->getContext()),
                            PortDirection::INPUT});
         results.push_back({StringAttr::get((*this)->getContext(), "result"),
                            IntegerType::get((*this)->getContext(), 32),
                            PortDirection::OUTPUT});
     } else if (name.getValue().contains("mem")) {
-        auto rw = (*this)->getAttr("ports").cast<mlir::StringAttr>();
+        auto rw = llvm::cast<mlir::StringAttr>((*this)->getAttr("ports"));
         assert(rw != nullptr && "Must provide read/write for mem");
         if (rw.getValue() == "r") {
             results.push_back({StringAttr::get((*this)->getContext(), "r_en"),
@@ -973,6 +983,50 @@ void StageOp::build(OpBuilder &builder, OperationState &result,
     Block *block = new Block();
     regionBody->push_back(block);
 }
+
+LogicalResult DesignOp::verify() { return verifyDesignOp(*this); }
+
+ParseResult ComponentOp::parse(OpAsmParser &parser, OperationState &result) {
+    return parseComponentOp(parser, result);
+}
+
+void ComponentOp::print(OpAsmPrinter &p) { printComponentOp(p, *this); }
+
+LogicalResult ComponentOp::verify() { return verifyComponentOp(*this); }
+
+LogicalResult InstanceOp::verify() { return verifyInstanceOp(*this); }
+
+LogicalResult PrimitiveOp::verify() { return verifyPrimitiveOp(*this); }
+
+LogicalResult StateSetOp::verify() { return verifyStateSetOp(*this); }
+
+ParseResult StateOp::parse(OpAsmParser &parser, OperationState &result) {
+    return parseStateOp(parser, result);
+}
+
+void StateOp::print(OpAsmPrinter &p) { printStateOp(p, *this); }
+
+LogicalResult StateOp::verify() { return verifyStateOp(*this); }
+
+LogicalResult TransitionOp::verify() { return verifyTransitionOp(*this); }
+
+LogicalResult GotoOp::verify() { return verifyGotoOp(*this); }
+
+LogicalResult CDoneOp::verify() { return verifyCDoneOp(*this); }
+
+LogicalResult DoneOp::verify() { return verifyDoneOp(*this); }
+
+LogicalResult GraphOp::verify() { return verifyGraphOp(*this); }
+
+LogicalResult StageSetOp::verify() { return verifyStageSetOp(*this); }
+
+ParseResult StageOp::parse(OpAsmParser &parser, OperationState &result) {
+    return parseStageOp(parser, result);
+}
+
+void StageOp::print(OpAsmPrinter &p) { printStageOp(p, *this); }
+
+LogicalResult StageOp::verify() { return verifyStageOp(*this); }
 
 #define GET_OP_CLASSES
 

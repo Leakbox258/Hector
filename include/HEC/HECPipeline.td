@@ -14,15 +14,17 @@ def StageSetOp : HECOp<"stageset", [
     The "hec.stageset" operation represents a set of cycle-sensitive stages.
   }];
 
-  let regions = (region SizedRegion<1> : $body);
+  let regions = (region SizedRegion<1> : $bodyRegion);
 
   let extraClassDeclaration = [{
     /// Implement RegionindInterface.
     static RegionKind getRegionKind(unsigned index) { return RegionKind::Graph;}
+    Block *getBody() { return &getOperation()->getRegion(0).front(); }
+    Region &body() { return getBodyRegion(); }
   }];
 
-  let assemblyFormat = "$body attr-dict";
-  let verifier = "return ::verify$cppClass(*this);";
+  let assemblyFormat = "$bodyRegion attr-dict";
+  let hasVerifier = 1;
 }
 
 def StageOp : HECOp<"stage", [
@@ -39,11 +41,14 @@ def StageOp : HECOp<"stage", [
   let builders = [
     OpBuilder<(ins "StringAttr" : $name)>
   ];
-  let regions = (region SizedRegion<1>: $body);
+  let regions = (region SizedRegion<1>: $bodyRegion);
+  let extraClassDeclaration = [{
+    Block *getBody() { return &getOperation()->getRegion(0).front(); }
+    Region &body() { return getBodyRegion(); }
+  }];
   
-  let printer = "return ::print$cppClass(p, *this);";
-  let parser = "return ::parse$cppClass(parser, result);";
-  let verifier = "return ::verify$cppClass(*this);";
+  let hasCustomAssemblyFormat = 1;
+  let hasVerifier = 1;
 }
 
 def InitOp : HECOp<"init", []> {
@@ -57,8 +62,12 @@ def InitOp : HECOp<"init", []> {
     AnyType : $src
   );
 
+  let extraClassDeclaration = [{
+    ::mlir::Value dst() { return getDst(); }
+    ::mlir::Value src() { return getSrc(); }
+  }];
+
   let assemblyFormat = "$dst `=` $src attr-dict `:` type($src) `->` type($dst)";
-  let verifier = ?;
 }
 
 def YieldOp : HECOp<"yield",[]> {
@@ -68,7 +77,6 @@ def YieldOp : HECOp<"yield",[]> {
   }];
   let arguments = (ins Variadic<AnyType> : $results);
   let assemblyFormat = "attr-dict ($results^ `:` type($results))?";
-  let verifier = ?;
 }
 
 
@@ -83,8 +91,14 @@ def DeliverOp : HECOp<"deliver",[]> {
     AnyType : $destPort, 
     Optional<I1>: $guard);
 
+  let extraClassDeclaration = [{
+    ::mlir::Value src() { return getSrc(); }
+    ::mlir::Value destReg() { return getDestReg(); }
+    ::mlir::Value destPort() { return getDestPort(); }
+    ::mlir::Value guard() { return getGuard(); }
+  }];
+
   let assemblyFormat = "$src `to` $destReg `(` $destPort `)` attr-dict  (`if` $guard^)?`:` type($src) `->` type($destReg) `,` type($destPort)";
-  let verifier = ?;
 }
 
 #endif // HEC_PIPELINE_TD

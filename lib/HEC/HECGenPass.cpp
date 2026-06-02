@@ -15,10 +15,10 @@
 #include "HEC/HEC.h"
 #include "HEC/HECDialect.h"
 #include "HEC/PassDetail.h"
-#include "mlir/Analysis/Utils.h"
-#include "mlir/Dialect/SCF/SCF.h"
-#include "mlir/Dialect/StandardOps/IR/Ops.h"
-#include "mlir/IR/BlockAndValueMapping.h"
+#include "mlir/Dialect/Affine/Analysis/Utils.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
+#include "mlir/IR/IRMapping.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/MLIRContext.h"
@@ -26,7 +26,6 @@
 #include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "mlir/Transforms/Passes.h"
-#include "mlir/Transforms/Utils.h"
 #include "llvm/ADT/MapVector.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
@@ -138,7 +137,7 @@ struct Memory {
 
   mlir::Value getAddress() {
     assert(op != nullptr && op.primitiveName() == "mem");
-    auto rw = op->getAttr("ports").cast<mlir::StringAttr>().getValue();
+    auto rw = llvm::cast<mlir::StringAttr>(op->getAttr("ports")).getValue();
     if (rw == "r") {
       return op.getResult(1);
     } else if (rw == "w") {
@@ -151,7 +150,7 @@ struct Memory {
   }
   mlir::Value getReadEnable() {
     assert(op != nullptr && op.primitiveName() == "mem");
-    auto rw = op->getAttr("ports").cast<mlir::StringAttr>().getValue();
+    auto rw = llvm::cast<mlir::StringAttr>(op->getAttr("ports")).getValue();
     if (rw == "r") {
       return op.getResult(0);
     } else if (rw == "rw") {
@@ -162,7 +161,7 @@ struct Memory {
   }
   mlir::Value getWriteEnable() {
     assert(op != nullptr && op.primitiveName() == "mem");
-    auto rw = op->getAttr("ports").cast<mlir::StringAttr>().getValue();
+    auto rw = llvm::cast<mlir::StringAttr>(op->getAttr("ports")).getValue();
     if (rw == "w" || rw == "rw") {
       return op.getResult(0);
     } else
@@ -171,7 +170,7 @@ struct Memory {
   }
   mlir::Value getReadData() {
     assert(op != nullptr && op.primitiveName() == "mem");
-    auto rw = op->getAttr("ports").cast<mlir::StringAttr>().getValue();
+    auto rw = llvm::cast<mlir::StringAttr>(op->getAttr("ports")).getValue();
     if (rw == "r") {
       return op.getResult(2);
     } else if (rw == "rw") {
@@ -182,7 +181,7 @@ struct Memory {
   }
   mlir::Value getWriteData() {
     assert(op != nullptr && op.primitiveName() == "mem");
-    auto rw = op->getAttr("ports").cast<mlir::StringAttr>().getValue();
+    auto rw = llvm::cast<mlir::StringAttr>(op->getAttr("ports")).getValue();
     if (rw == "w") {
       return op.getResult(2);
     } else if (rw == "rw") {
@@ -556,12 +555,12 @@ private:
 
 private:
   size_t getClock(TimeEdge &edge) {
-    auto dict = edge.attr.cast<mlir::DictionaryAttr>();
-    auto format = dict.get("type").cast<StringAttr>().getValue();
+    auto dict = llvm::cast<mlir::DictionaryAttr>(edge.attr);
+    auto format = llvm::cast<StringAttr>(dict.get("type")).getValue();
     auto typestr = format.rsplit(":").first;
     auto clockstr = format.rsplit(":").second;
     unsigned long clock;
-    if (typestr.equals("merge"))
+    if (typestr == "merge")
       clock = 0ul;
     if (clockstr.size() == 0)
       clock = 1ul;
@@ -707,7 +706,7 @@ private:
           auto pipelineAttr = forOp->getAttr("pipeline");
           if (pipelineAttr == nullptr)
             break;
-          auto pipeline = pipelineAttr.cast<IntegerAttr>().getInt();
+          auto pipeline = llvm::cast<IntegerAttr>(pipelineAttr).getInt();
           if (pipeline)
             need = 1;
           break;
@@ -857,18 +856,17 @@ private:
           else
             vud.use.push_back(ifop.endtime());
         } else if (auto yieldOp = llvm::dyn_cast<tor::YieldOp>(user)) {
-          vud.use.push_back((yieldOp->getParentOp())
-                                ->getAttr("endtime")
-                                .template cast<::mlir::IntegerAttr>()
+          vud.use.push_back(llvm::cast<::mlir::IntegerAttr>(
+                                (yieldOp->getParentOp())->getAttr("endtime"))
                                 .getInt());
         } else if (auto returnOp = llvm::dyn_cast<tor::ReturnOp>(user)) {
           vud.use.push_back(nodes.size() - 1);
         } else if (auto conditionOp = llvm::dyn_cast<tor::ConditionOp>(user)) {
           std::cerr << "Meet a conditionOp" << std::endl;
         } else {
-          vud.use.push_back(user->getAttr("starttime")
-                                .template cast<::mlir::IntegerAttr>()
-                                .getInt());
+          vud.use.push_back(
+              llvm::cast<::mlir::IntegerAttr>(user->getAttr("starttime"))
+                  .getInt());
         }
       }
 
@@ -926,9 +924,8 @@ private:
           if (auto ifop = llvm::dyn_cast<tor::IfOp>(user)) {
             vud.use.push_back(ifop.endtime());
           } else if (auto yieldOp = llvm::dyn_cast<tor::YieldOp>(user)) {
-            vud.use.push_back((yieldOp->getParentOp())
-                                  ->getAttr("endtime")
-                                  .template cast<::mlir::IntegerAttr>()
+            vud.use.push_back(llvm::cast<::mlir::IntegerAttr>(
+                                  (yieldOp->getParentOp())->getAttr("endtime"))
                                   .getInt());
           } else if (auto returnOp = llvm::dyn_cast<tor::ReturnOp>(user)) {
             vud.use.push_back(nodes.size() - 1);
@@ -936,9 +933,9 @@ private:
                          llvm::dyn_cast<tor::ConditionOp>(user)) {
             std::cerr << "Meet a conditionOp" << std::endl;
           } else {
-            vud.use.push_back(user->getAttr("starttime")
-                                  .template cast<::mlir::IntegerAttr>()
-                                  .getInt());
+            vud.use.push_back(
+                llvm::cast<::mlir::IntegerAttr>(user->getAttr("starttime"))
+                    .getInt());
           }
         }
       }
@@ -1294,7 +1291,7 @@ private:
     Cell cell(cell_count++, top.starttime(), top.endtime(),                    \
               std::string(cname) + "_" + func.getName().str(),                 \
               std::string(pname) + "_" +                                       \
-                  tor::stringifyEnum(top.predicate()).str());                 \
+                  tor::stringifyEnum(top.getPredicate()).str());               \
     op2cell[top] = cell.id;                                                    \
     cell.setTypes(top);                                                        \
     cells.push_back(cell);                                                     \
@@ -1559,12 +1556,12 @@ private:
 
   size_t gen_states(size_t t, size_t tend, bool reach = 1) {
     auto getClock = [](TimeEdge &te) {
-      auto dict = te.attr.cast<mlir::DictionaryAttr>();
-      auto format = dict.get("type").cast<StringAttr>().getValue();
+      auto dict = llvm::cast<mlir::DictionaryAttr>(te.attr);
+      auto format = llvm::cast<StringAttr>(dict.get("type")).getValue();
       auto typestr = format.rsplit(":").first;
       auto clockstr = format.rsplit(":").second;
       unsigned long clock;
-      if (typestr.equals("merge"))
+      if (typestr == "merge")
         clock = 0ul;
       else if (clockstr.size() == 0)
         clock = 1ul;
@@ -2224,8 +2221,8 @@ private:
       createNot(cond0, cond, state0);
 
     auto t = bop.starttime();
-    auto lhs = mapValue(bop.lhs(), t, state0.getName().str());
-    auto rhs = mapValue(bop.rhs(), t, state0.getName().str());
+    auto lhs = mapValue(bop->getOperand(0), t, state0.getName().str());
+    auto rhs = mapValue(bop->getOperand(1), t, state0.getName().str());
 
     assert(lhs != nullptr && rhs != nullptr);
 
@@ -2294,8 +2291,8 @@ private:
     // auto t = bop.starttime();
 
     assert(state0 != nullptr);
-    auto lhs = mapValue(bop.lhs(), t, state0.getName().str());
-    auto rhs = mapValue(bop.rhs(), t, state0.getName().str());
+    auto lhs = mapValue(bop->getOperand(0), t, state0.getName().str());
+    auto rhs = mapValue(bop->getOperand(1), t, state0.getName().str());
 
     assert(lhs != nullptr && rhs != nullptr);
 
@@ -2330,9 +2327,9 @@ private:
     // auto t = bop.starttime();
 
     assert(state0 != nullptr);
-    auto condition = mapValue(bop.condition(), t, state0.getName().str());
-    auto lhs = mapValue(bop.true_value(), t, state0.getName().str());
-    auto rhs = mapValue(bop.false_value(), t, state0.getName().str());
+    auto condition = mapValue(bop.getCondition(), t, state0.getName().str());
+    auto lhs = mapValue(bop.getTrueValue(), t, state0.getName().str());
+    auto rhs = mapValue(bop.getFalseValue(), t, state0.getName().str());
 
     assert(condition != nullptr && lhs != nullptr && rhs != nullptr);
 
@@ -2372,7 +2369,7 @@ private:
       cond1 = cond2;
 
     auto t = bop->template getAttrOfType<IntegerAttr>("starttime").getInt();
-    auto lhs = mapValue(bop.in(), t, state0.getName().str());
+    auto lhs = mapValue(bop->getOperand(0), t, state0.getName().str());
 
     assert(lhs != nullptr);
 
@@ -2413,8 +2410,8 @@ private:
 
     // auto t = bop.starttime();
     auto t = bop->template getAttrOfType<IntegerAttr>("starttime").getInt();
-    auto lhs = mapValue(bop.lhs(), t, state0.getName().str());
-    auto rhs = mapValue(bop.rhs(), t, state0.getName().str());
+    auto lhs = mapValue(bop->getOperand(0), t, state0.getName().str());
+    auto rhs = mapValue(bop->getOperand(1), t, state0.getName().str());
 
     assert(lhs != nullptr);
     assert(rhs != nullptr);
@@ -2508,7 +2505,7 @@ private:
       insertMultiCycleBinaryOp(state0, state1, cmpf, nullptr);
     if (auto cmpi = llvm::dyn_cast<tor::CmpIOp>(op))
       insertCmpIOp(state0, cmpi, nullptr, 0,
-                   tor::stringifyEnum(cmpi.predicate()).str());
+                   tor::stringifyEnum(cmpi.getPredicate()).str());
 
     if (auto load = llvm::dyn_cast<tor::LoadOp>(op))
       insertLoadOp(state0, state1, load, nullptr);
@@ -2626,7 +2623,7 @@ private:
                                      mapValue(ifop.condition(), t));
           if (auto cmpi = llvm::dyn_cast<tor::CmpIOp>(opoe.op))
             insertCmpIOp(state0, cmpi, mapValue(ifop.condition(), t), 0,
-                         tor::stringifyEnum(cmpi.predicate()).str());
+                         tor::stringifyEnum(cmpi.getPredicate()).str());
 
           if (auto load = llvm::dyn_cast<tor::LoadOp>(opoe.op))
             insertLoadOp(state0, state_then, load,
@@ -2729,7 +2726,7 @@ private:
                                        mapValue(ifop.condition(), t), 1);
             if (auto cmpi = llvm::dyn_cast<tor::CmpIOp>(opoe.op))
               insertCmpIOp(state0, cmpi, mapValue(ifop.condition(), t), 1,
-                           tor::stringifyEnum(cmpi.predicate()).str());
+                           tor::stringifyEnum(cmpi.getPredicate()).str());
 
             if (auto load = llvm::dyn_cast<tor::LoadOp>(opoe.op))
               insertLoadOp(state0, state_else, load,
@@ -2879,10 +2876,10 @@ private:
 
       if (auto cmpi = llvm::dyn_cast<tor::CmpIOp>(opoe.op)) {
         insertCmpIOp(state0, cmpi, mapValue(whileop.getOperand(0), t), 0,
-                     tor::stringifyEnum(cmpi.predicate()).str());
+                     tor::stringifyEnum(cmpi.getPredicate()).str());
         insertCmpIOp(state_entry, cmpi,
                      mapValue(whileop.getRegion(0).getArgument(0), t), 0,
-                     tor::stringifyEnum(cmpi.predicate()).str());
+                     tor::stringifyEnum(cmpi.getPredicate()).str());
       }
       if (auto load = llvm::dyn_cast<tor::LoadOp>(opoe.op)) {
         insertLoadOp(state0, state0_next, load,
@@ -3039,9 +3036,9 @@ private:
 
       if (auto cmpi = llvm::dyn_cast<tor::CmpIOp>(opoe.op)) {
         insertCmpIOp(state0, cmpi, node.val0, 0,
-                     tor::stringifyEnum(cmpi.predicate()).str());
+                     tor::stringifyEnum(cmpi.getPredicate()).str());
         insertCmpIOp(state_entry, cmpi, mapOp2Reg(forop), 0,
-                     tor::stringifyEnum(cmpi.predicate()).str());
+                     tor::stringifyEnum(cmpi.getPredicate()).str());
       }
       if (auto load = llvm::dyn_cast<tor::LoadOp>(opoe.op)) {
         insertLoadOp(state0, state0_next, load, node.val0, 0, mapOp2Reg(forop));
@@ -3397,9 +3394,9 @@ public:
                            unsigned startstage, unsigned endstage) {
     assert(startstage == endstage);
     auto guard = gen_guard(from, to, startstage);
-    auto lhs = map_value_stage(op.lhs(), startstage);
-    auto rhs = map_value_stage(op.rhs(), startstage);
-    auto res = map_value_stage(op.result(), endstage + 1);
+    auto lhs = map_value_stage(op->getOperand(0), startstage);
+    auto rhs = map_value_stage(op->getOperand(1), startstage);
+    auto res = map_value_stage(op->getResult(0), endstage + 1);
     assert(lhs != nullptr);
     assert(rhs != nullptr);
     //   assert(res != nullptr);
@@ -3431,7 +3428,7 @@ public:
 
     auto new_op = rewriter.create<hec::CmpIOp>(
         stageop.getLoc(), op.getResult().getType(), lhs, rhs,
-        tor::stringifyEnum(op.predicate()), guard);
+        tor::stringifyEnum(op.getPredicate()), guard);
     getVUD(op.getResult(), op).wire = new_op.getResult();
 
     if (res != nullptr) {
@@ -3445,10 +3442,10 @@ public:
                              unsigned startstage, unsigned endstage) {
     assert(startstage == endstage);
     auto guard = gen_guard(from, to, startstage);
-    auto condition = map_value_stage(op.condition(), startstage);
-    auto lhs = map_value_stage(op.true_value(), startstage);
-    auto rhs = map_value_stage(op.false_value(), startstage);
-    auto res = map_value_stage(op.result(), endstage + 1);
+    auto condition = map_value_stage(op.getCondition(), startstage);
+    auto lhs = map_value_stage(op.getTrueValue(), startstage);
+    auto rhs = map_value_stage(op.getFalseValue(), startstage);
+    auto res = map_value_stage(op.getResult(), endstage + 1);
     assert(condition != nullptr);
     assert(lhs != nullptr);
     assert(rhs != nullptr);
@@ -3476,7 +3473,7 @@ public:
     assert(startstage < endstage);
     auto guard0 = gen_guard(from, to, startstage);
     auto guard1 = gen_guard(from, to, endstage);
-    auto lhs = map_value_stage(op.in(), startstage);
+    auto lhs = map_value_stage(op->getOperand(0), startstage);
     auto res = map_value_stage(op->getResult(0), endstage + 1);
     assert(lhs != nullptr);
     // assert(res != nullptr);
@@ -3507,9 +3504,9 @@ public:
     assert(startstage < endstage);
     auto guard0 = gen_guard(from, to, startstage);
     auto guard1 = gen_guard(from, to, endstage);
-    auto lhs = map_value_stage(op.lhs(), startstage);
-    auto rhs = map_value_stage(op.rhs(), startstage);
-    auto res = map_value_stage(op.result(), endstage + 1);
+    auto lhs = map_value_stage(op->getOperand(0), startstage);
+    auto rhs = map_value_stage(op->getOperand(1), startstage);
+    auto res = map_value_stage(op->getResult(0), endstage + 1);
     assert(lhs != nullptr);
     assert(rhs != nullptr);
     // assert(res != nullptr);
@@ -3531,7 +3528,7 @@ public:
                                      primitive.getResult(2), guard1);
     }
 
-    getVUD(op.result(), op).wire = primitive.getResult(2);
+    getVUD(op->getResult(0), op).wire = primitive.getResult(2);
   }
 
   void gen_LoadOp_on_stage(unsigned from, unsigned to, tor::LoadOp load,
@@ -3746,13 +3743,13 @@ public:
       for (auto arg : forop.getRegionIterArgs()) {
         rewriter.setInsertionPoint(stageset);
 
-        if (forop.initArgs()[i].isa<BlockArgument>()) {
+        if (llvm::isa<BlockArgument>(forop.initArgs()[i])) {
           rewriter.create<hec::InitOp>(
               component.getLoc(), // reg.getResult(0),
               registers[pipelineRegs[findVUD(arg).id].begin()->second]
                   .op.getResult(0),
-              component.getArgument(
-                  forop.initArgs()[i].cast<BlockArgument>().getArgNumber()));
+              component.getArgument(llvm::cast<BlockArgument>(forop.initArgs()[i])
+                                        .getArgNumber()));
         } else {
           rewriter.create<hec::InitOp>(
               component.getLoc(), // reg.getResult(0),
@@ -3848,7 +3845,7 @@ public:
       auto returnop = llvm::dyn_cast<tor::ReturnOp>(
           func.getRegion().front().getTerminator());
       llvm::SmallVector<mlir::Value, 2> results;
-      for (auto res : returnop.operands()) {
+      for (auto res : returnop.getOperands()) {
         results.push_back(map_value_stage(res, stage));
       }
       rewriter.setInsertionPointToEnd(stageop.getBody());
@@ -3866,7 +3863,7 @@ public:
           func.getRegion().back().getTerminator());
 
       std::map<size_t, size_t> res2ret;
-      for (size_t i = 0; i < retop.operands().size(); i++) {
+      for (size_t i = 0; i < retop.getOperands().size(); i++) {
         auto value = retop.getOperand(i);
         auto op = value.getDefiningOp();
         if (auto forop = llvm::dyn_cast<tor::ForOp>(op)) {
@@ -4189,10 +4186,10 @@ public:
             auto eattrarray = succ.edges();
             for (size_t i = 0; i < froms.size(); i++) {
               auto fromAttr = froms[i];
-              auto edict = eattrarray[i].cast<mlir::DictionaryAttr>();
+              auto edict = llvm::cast<mlir::DictionaryAttr>(eattrarray[i]);
               auto format = edict.get("type");
-              auto from = fromAttr.cast<mlir::IntegerAttr>().getInt();
-              auto info = format.cast<mlir::StringAttr>().getValue().str();
+              auto from = llvm::cast<mlir::IntegerAttr>(fromAttr).getInt();
+              auto info = llvm::cast<mlir::StringAttr>(format).getValue().str();
 
               nodes[from].edges.push_back(
                   TimeEdge(from, to, edict,
@@ -4329,28 +4326,28 @@ void standardizeFunc(mlir::tor::FuncOp func, mlir::PatternRewriter &rewriter) {
           add2Dict(succ.time());
           auto froms = succ.points();
           for (auto attr : froms)
-            add2Dict(attr.cast<mlir::IntegerAttr>().getInt());
+            add2Dict(llvm::cast<mlir::IntegerAttr>(attr).getInt());
         }
 
-      tg.starttimeAttr(
-          rewriter.getIntegerAttr(tg.starttimeAttr().getType(), 0));
-      tg.endtimeAttr(
-          rewriter.getIntegerAttr(tg.endtimeAttr().getType(), count - 1));
+      tg.setStarttimeAttr(
+          rewriter.getIntegerAttr(tg.getStarttimeAttr().getType(), 0));
+      tg.setEndtimeAttr(
+          rewriter.getIntegerAttr(tg.getEndtimeAttr().getType(), count - 1));
 
       for (auto &op1 : tg.region().front())
         if (auto succ = llvm::dyn_cast<tor::SuccTimeOp>(op1)) {
           auto to = succ.time();
-          succ.timeAttr(
-              rewriter.getIntegerAttr(succ.timeAttr().getType(), dict[to]));
+          succ.setTimeAttr(
+              rewriter.getIntegerAttr(succ.getTimeAttr().getType(), dict[to]));
 
           llvm::SmallVector<mlir::IntegerAttr, 2> arr;
 
           for (auto attr : succ.points())
             arr.push_back(rewriter.getIntegerAttr(
-                attr.cast<mlir::IntegerAttr>().getType(),
-                dict[attr.cast<mlir::IntegerAttr>().getInt()]));
+                llvm::cast<mlir::IntegerAttr>(attr).getType(),
+                dict[llvm::cast<mlir::IntegerAttr>(attr).getInt()]));
 
-          succ.pointsAttr(rewriter.getArrayAttr(
+          succ.setPointsAttr(rewriter.getArrayAttr(
               llvm::ArrayRef<mlir::Attribute>(arr.begin(), arr.end())));
         }
     }
@@ -4358,10 +4355,14 @@ void standardizeFunc(mlir::tor::FuncOp func, mlir::PatternRewriter &rewriter) {
   func.walk([&](mlir::Operation *op) {
 #define MODIFY(OpType)                                                         \
   if (auto sop = llvm::dyn_cast<OpType>(op)) {                                 \
-    sop.starttimeAttr(rewriter.getIntegerAttr(sop.starttimeAttr().getType(),   \
-                                              dict[sop.starttime()]));         \
-    sop.endtimeAttr(rewriter.getIntegerAttr(sop.endtimeAttr().getType(),       \
-                                            dict[sop.endtime()]));             \
+    auto startAttr = sop->getAttrOfType<IntegerAttr>("starttime");             \
+    auto endAttr = sop->getAttrOfType<IntegerAttr>("endtime");                 \
+    sop->setAttr("starttime",                                                  \
+                 rewriter.getIntegerAttr(startAttr.getType(),                  \
+                                         dict[sop.starttime()]));              \
+    sop->setAttr("endtime",                                                    \
+                 rewriter.getIntegerAttr(endAttr.getType(),                    \
+                                         dict[sop.endtime()]));                \
   }
     MODIFY(tor::AddIOp)
     MODIFY(tor::SubIOp)
@@ -4381,16 +4382,15 @@ void standardizeFunc(mlir::tor::FuncOp func, mlir::PatternRewriter &rewriter) {
 #undef MODIFY
 #define MODIFYSTD(OpType)                                                      \
   if (auto sop = llvm::dyn_cast<OpType>(op)) {                                 \
+    auto startAttr = sop->getAttrOfType<IntegerAttr>("starttime");             \
+    auto endAttr = sop->getAttrOfType<IntegerAttr>("endtime");                 \
     sop->setAttr(                                                              \
         "starttime",                                                           \
-        rewriter.getIntegerAttr(                                               \
-            sop->getAttr("starttime").getType(),                               \
-            dict[sop->getAttrOfType<IntegerAttr>("starttime").getInt()]));     \
+        rewriter.getIntegerAttr(startAttr.getType(),                           \
+                                dict[startAttr.getInt()]));                    \
     sop->setAttr(                                                              \
         "endtime",                                                             \
-        rewriter.getIntegerAttr(                                               \
-            sop->getAttr("endtime").getType(),                                 \
-            dict[sop->getAttrOfType<IntegerAttr>("endtime").getInt()]));       \
+        rewriter.getIntegerAttr(endAttr.getType(), dict[endAttr.getInt()]));   \
   }
     //    MODIFYSTD(CmpFOp)
     MODIFYSTD(AndOp)
@@ -4544,7 +4544,7 @@ struct HECGen : public OpRewritePattern<mlir::tor::DesignOp> {
   }
 };
 
-struct HECGenPass : public HECGenBase<HECGenPass> {
+struct HECGenPass : public impl::HECGenBase<HECGenPass> {
   void runOnOperation() override {
     mlir::ModuleOp m = getOperation();
 
@@ -4558,7 +4558,8 @@ struct HECGenPass : public HECGenBase<HECGenPass> {
     if (m.walk([&](tor::DesignOp design) {
            mlir::RewritePatternSet patterns(&getContext());
            patterns.insert<HECGen>(m.getContext());
-           if (failed(applyOpPatternsAndFold(design, std::move(patterns))))
+           SmallVector<Operation *> ops{design.getOperation()};
+           if (failed(applyOpPatternsAndFold(ops, std::move(patterns))))
              return WalkResult::advance();
            return WalkResult::advance();
          }).wasInterrupted()) {

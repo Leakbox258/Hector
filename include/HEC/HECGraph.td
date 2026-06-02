@@ -13,15 +13,17 @@ def GraphOp : HECOp<"graph", [
     The "hec.graph" operation represents a handshake graph.
 
   }];
-  let regions = (region SizedRegion<1> : $body);
+  let regions = (region SizedRegion<1> : $bodyRegion);
 
   let extraClassDeclaration = [{
     /// Implement RegionKindInterface.
     static RegionKind getRegionKind(unsigned index) { return RegionKind::Graph; }
+    Block *getBody() { return &getOperation()->getRegion(0).front(); }
+    Region &body() { return getBodyRegion(); }
 
   }];
-  let assemblyFormat = "$body attr-dict";
-  let verifier = "return ::verify$cppClass(*this);";
+  let assemblyFormat = "$bodyRegion attr-dict";
+  let hasVerifier = 1;
 }
 
 #endif // HEC_GRAPH_TD

@@ -9,7 +9,7 @@ message(STATUS "Using nlohmann_json in: thirdparty/json")
 set(JSON_BuildTests OFF CACHE INTERNAL "")
 add_subdirectory(thirdparty/json)
 include_directories(thirdparty/json/include)
-include_directories(thirdparty/lp_solve_5.5)
+include_directories(thirdparty/lp_solve)
 
 find_package(MLIR REQUIRED CONFIG)
 
@@ -32,7 +32,7 @@ include_directories(${MLIR_INCLUDE_DIRS})
 include_directories(${PROJECT_SOURCE_DIR}/include)
 include_directories(${PROJECT_BINARY_DIR}/include)
 
-set(LP_SOLVE_PATH "${CMAKE_SOURCE_DIR}/thirdparty/lp_solve_5.5/lpsolve55")
+set(LP_SOLVE_PATH "${CMAKE_SOURCE_DIR}/thirdparty/lp_solve/lpsolve55")
 
 if (WIN32)
     find_library(LP_SOLVE_LIB NAMES liblpsolve55.lib PATHS "${LP_SOLVE_PATH}/bin/win64")

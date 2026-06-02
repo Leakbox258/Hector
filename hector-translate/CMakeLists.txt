@@ -14,7 +14,7 @@ target_link_libraries(hector-translate
   MLIRIR
   MLIRParser
   MLIRPass
-  MLIRTranslation
+  MLIRTranslateLib
   MLIRSupport
   )
 

@@ -1,24 +1,24 @@
 #include "HEC/PassDetail.h"
-#include "mlir/Analysis/Utils.h"
+#include "mlir/Dialect/Affine/Analysis/Utils.h"
 #include "llvm/ADT/MapVector.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
 
-#include "mlir/Dialect/SCF/SCF.h"
-#include "mlir/Dialect/StandardOps/IR/Ops.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
+#include "TOR/TOR.h"
 #include "HEC/HEC.h"
 #include "HEC/HECDialect.h"
 
 #include "mlir/Pass/Pass.h"
-#include "mlir/IR/BlockAndValueMapping.h"
+#include "mlir/IR/IRMapping.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/PatternMatch.h"
 #include <mlir/Transforms/DialectConversion.h>
 #include "mlir/Transforms/Passes.h"
-#include "mlir/Transforms/Utils.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
 #include <map>
@@ -86,9 +86,9 @@ namespace mlir {
                     //                    constantOp.getValue().print(out);
                     //                    constantOp.dump();
                     auto attr = constantOp.getValue();
-                    if (auto int_attr = attr.dyn_cast<IntegerAttr>()) {
+                    if (auto int_attr = llvm::dyn_cast<IntegerAttr>(attr)) {
                         name += std::to_string(int_attr.getValue().getSExtValue()) + ".U";
-                    } else if (auto float_attr = attr.dyn_cast<FloatAttr>()) {
+                    } else if (auto float_attr = llvm::dyn_cast<FloatAttr>(attr)) {
                         //FIXME: Hex representation for float number
                         SmallVector<char> float_num;
 //                        float_attr.getValue().toString(float_num);
@@ -96,9 +96,12 @@ namespace mlir {
 //                        for (auto cr : float_num) {
 //                            name += cr;
 //                        }
-                        name += float_attr.getValue().bitcastToAPInt().toString(10, false);
+                        SmallString<32> floatBits;
+                        float_attr.getValue().bitcastToAPInt().toString(
+                            floatBits, 10, false);
+                        name += std::string(floatBits);
                         name += "L.U";
-                    } else if (auto bool_attr = attr.dyn_cast<BoolAttr>()) {
+                    } else if (auto bool_attr = llvm::dyn_cast<BoolAttr>(attr)) {
                         name += std::to_string(bool_attr.getValue()) + ".B";
                     } else {
                         attr.dump();
@@ -123,16 +126,16 @@ namespace mlir {
         }
 
         string getType(Type type) {
-            if (auto integer = type.dyn_cast<IntegerType>()) {
+            if (auto integer = llvm::dyn_cast<IntegerType>(type)) {
                 if (integer.getWidth() == 1000) {
                     return "UInt(0.W)";
                 }
                 return "UInt(" + std::to_string(integer.getWidth()) + ".W)";
             }
-            if (type.isa<Float32Type>()) {
+            if (llvm::isa<Float32Type>(type)) {
                 return "UInt(32.W)";
             }
-            if (type.isa<Float64Type>()) {
+            if (llvm::isa<Float64Type>(type)) {
                 return "UInt(64.W)";
             } else {
                 type.dump();
@@ -142,16 +145,16 @@ namespace mlir {
         }
 
         int getWidth(Type type) {
-            if (auto integer = type.dyn_cast<IntegerType>()) {
+            if (auto integer = llvm::dyn_cast<IntegerType>(type)) {
                 if (integer.getWidth() == 1000) {
                     return 0;
                 }
                 return integer.getWidth();
             }
-            if (type.isa<Float32Type>()) {
+            if (llvm::isa<Float32Type>(type)) {
                 return 32;
             }
-            if (type.isa<Float64Type>()) {
+            if (llvm::isa<Float64Type>(type)) {
                 return 64;
             } else {
                 type.dump();
@@ -172,7 +175,7 @@ namespace mlir {
         }
 
         string getName(hec::CmpIOp cmpIOp) {
-            string type = get(cmpIOp.typeAttr().getValue());
+            string type = get(cmpIOp.getTypeAttr().getValue());
             if (type == "sle") {
                 return " <= ";
             } else if (type == "slt") {
@@ -210,7 +213,9 @@ namespace mlir {
                 assert(false && "Undefined cmp operation");
                 chisel_component += "???()";
             } else if (primName == "mem") {
-                string type = get(primitive->getAttr("ports").cast<StringAttr>().getValue());
+                string type = get(llvm::cast<StringAttr>(
+                                      primitive->getAttr("ports"))
+                                      .getValue());
                 if (type == "r") {
                     chisel_component += "ReadMem(";
                 } else if (type == "w") {
@@ -219,13 +224,15 @@ namespace mlir {
                     chisel_component += "ReadWriteMem(";
                 }
                 chisel_component +=
-                        std::to_string(primitive->getAttr("len").cast<IntegerAttr>().getInt()) + ",";
+                        std::to_string(llvm::cast<IntegerAttr>(
+                                           primitive->getAttr("len"))
+                                           .getInt()) + ",";
                 auto store_type = primitive.getResult(primitive.getNumResults() - 1).getType();
-                if (auto integer = store_type.dyn_cast<IntegerType>()) {
+                if (auto integer = llvm::dyn_cast<IntegerType>(store_type)) {
                     chisel_component += std::to_string(integer.getWidth());
-                } else if (store_type.isa<Float64Type>()) {
+                } else if (llvm::isa<Float64Type>(store_type)) {
                     chisel_component += "64";
-                } else if (store_type.isa<Float32Type>()) {
+                } else if (llvm::isa<Float32Type>(store_type)) {
                     chisel_component += "32";
                 } else {
                     store_type.dump();
@@ -234,51 +241,51 @@ namespace mlir {
                 chisel_component += ")";
             } else if (primName.find("cmp_float") != string::npos) {
                 auto type = primitive.getResult(0).getType();
-                if (type.isa<Float64Type>()) {
+                if (llvm::isa<Float64Type>(type)) {
                     chisel_component += "CmpFBase(2, 11, 53)";
-                } else if (type.isa<Float32Type>()) {
+                } else if (llvm::isa<Float32Type>(type)) {
                     chisel_component += "CmpFBase(2, 8, 24)";
                 }
             } else if (primName == "mul_float") {
                 auto type = primitive.getResult(2).getType();
-                if (type.isa<Float64Type>()) {
+                if (llvm::isa<Float64Type>(type)) {
                     chisel_component += "MulFBase(9, 11, 53)";
-                } else if (type.isa<Float32Type>()) {
+                } else if (llvm::isa<Float32Type>(type)) {
                     chisel_component += "MulFBase(4, 8, 24)";
                 }
             } else if (primName == "sitofp") {
                 auto type = primitive.getResult(1).getType();
-                if (type.isa<Float64Type>()) {
+                if (llvm::isa<Float64Type>(type)) {
                     chisel_component += "IntToFloatBase(9, 32, 11, 53, true)";
-                } else if (type.isa<Float32Type>()) {
+                } else if (llvm::isa<Float32Type>(type)) {
                     chisel_component += "IntToFloatBase(4, 32, 8, 24, true)";
                 }
             } else if (primName == "fptosi") {
                 auto type = primitive.getResult(1).getType();
-                if (type.isa<Float64Type>()) {
+                if (llvm::isa<Float64Type>(type)) {
                     chisel_component += "FloatToIntBase(9, 32, 11, 53, true)";
-                } else if (type.isa<Float32Type>()) {
+                } else if (llvm::isa<Float32Type>(type)) {
                     chisel_component += "FloatToIntBase(4, 32, 8, 24, true)";
                 }
             } else if (primName == "div_float") {
                 auto type = primitive.getResult(2).getType();
-                if (type.isa<Float64Type>()) {
+                if (llvm::isa<Float64Type>(type)) {
                     chisel_component += "DivFBase(30, 11, 53)";
-                } else if (type.isa<Float32Type>()) {
+                } else if (llvm::isa<Float32Type>(type)) {
                     chisel_component += "DivFBase(20, 8, 24)";
                 }
             } else if (primName == "add_float") {
                 auto type = primitive.getResult(2).getType();
-                if (type.isa<Float64Type>()) {
+                if (llvm::isa<Float64Type>(type)) {
                     chisel_component += "AddSubFBase(13, 11, 53, true)";
-                } else if (type.isa<Float32Type>()) {
+                } else if (llvm::isa<Float32Type>(type)) {
                     chisel_component += "AddSubFBase(8, 8, 24, true)";
                 }
             } else if (primName == "sub_float") {
                 auto type = primitive.getResult(2).getType();
-                if (type.isa<Float64Type>()) {
+                if (llvm::isa<Float64Type>(type)) {
                     chisel_component += "AddSubFBase(13, 11, 53, false)";
-                } else if (type.isa<Float32Type>()) {
+                } else if (llvm::isa<Float32Type>(type)) {
                     chisel_component += "AddSubFBase(8, 8, 24, false)";
                 }
             } else {
@@ -416,7 +423,7 @@ namespace mlir {
                 auto type = negFOp.getResult().getType();
                 if (negFOp.guard() == Value()) {
                     chisel_code += tab + "val " + get_name(negFOp.res());
-                    if (type.isa<Float32Type>()) {
+                    if (llvm::isa<Float32Type>(type)) {
                         chisel_code += " = NegF(8, 24, " + get_name(negFOp.lhs()) + ")\n";
                     } else {
                         chisel_code += " = NegF(11, 53, " + get_name(negFOp.lhs()) + ")\n";
@@ -427,7 +434,7 @@ namespace mlir {
                     chisel_code += tab + get_name(negFOp.res()) + " := DontCare\n";
                     chisel_code += tab + "when (" + get_bool_name(negFOp.guard()) + ") {\n";
                     chisel_code += tab + "\t" + get_name(negFOp.res());
-                    if (type.isa<Float32Type>()) {
+                    if (llvm::isa<Float32Type>(type)) {
                         chisel_code += " := NegF(8, 24, " + get_name(negFOp.lhs()) + ")\n";
                     } else {
                         chisel_code += " := NegF(11, 53, " + get_name(negFOp.lhs()) + ")\n";
@@ -977,7 +984,7 @@ namespace mlir {
                 }
                 chisel_mem += "\tval " + valName + " = IO(Output(" + getType(memVal.getType()) + "))\n";
                 auto type = memVal.getType();
-                int resNum = memVal.cast<OpResult>().getResultNumber();
+                int resNum = llvm::cast<OpResult>(memVal).getResultNumber();
                 if (memValPair.second == 1) {
                     if (resNum == 0) {
                         chisel_mem += "\t" + valName + " := false.B\n";
@@ -1301,41 +1308,41 @@ namespace mlir {
                                                 std::to_string(getWidth(primitive.getResult(1).getType())) + ")";
                         } else if (primName == "fptosi") {
                             auto type = primitive.getResult(0).getType();
-                            if (type.isa<Float64Type>()) {
+                            if (llvm::isa<Float64Type>(type)) {
                                 chisel_component += "FloatToIntDynamic(9, " +
                                                     std::to_string(getWidth(primitive.getResult(1).getType())) +
                                                     ", 11, 53)";
-                            } else if (type.isa<Float32Type>()) {
+                            } else if (llvm::isa<Float32Type>(type)) {
                                 chisel_component += "FloatToIntDynamic(9, " +
                                                     std::to_string(getWidth(primitive.getResult(1).getType())) +
                                                     ", 8, 24)";
                             }
                         } else if (primName == "mul_float") {
                             auto type = primitive.getResult(2).getType();
-                            if (type.isa<Float64Type>()) {
+                            if (llvm::isa<Float64Type>(type)) {
                                 chisel_component += "MulFDynamic(9, 11, 53)";
-                            } else if (type.isa<Float32Type>()) {
+                            } else if (llvm::isa<Float32Type>(type)) {
                                 chisel_component += "MulFDynamic(4, 8, 24)";
                             }
                         } else if (primName == "neg_float") {
                             auto type = primitive.getResult(1).getType();
-                            if (type.isa<Float64Type>()) {
+                            if (llvm::isa<Float64Type>(type)) {
                                 chisel_component += "NegFDynamic(11, 53)";
-                            } else if (type.isa<Float32Type>()) {
+                            } else if (llvm::isa<Float32Type>(type)) {
                                 chisel_component += "NegFDynamic(8, 24)";
                             }
                         } else if (primName == "div_float") {
                             auto type = primitive.getResult(2).getType();
-                            if (type.isa<Float64Type>()) {
+                            if (llvm::isa<Float64Type>(type)) {
                                 chisel_component += "DivFDynamic(9, 11, 53)";
-                            } else if (type.isa<Float32Type>()) {
+                            } else if (llvm::isa<Float32Type>(type)) {
                                 chisel_component += "DivFDynamic(4, 8, 24)";
                             }
                         } else if (primName.find("cmp_float") != string::npos) {
                             auto type = primitive.getResult(0).getType();
-                            if (type.isa<Float64Type>()) {
+                            if (llvm::isa<Float64Type>(type)) {
                                 chisel_component += "CmpFDynamic(2, 11, 53)";
-                            } else if (type.isa<Float32Type>()) {
+                            } else if (llvm::isa<Float32Type>(type)) {
                                 chisel_component += "CmpFDynamic(2, 8, 24)";
                             }
                             string cmp_type = primName.substr(primName.rfind("_") + 1);
@@ -1353,16 +1360,16 @@ namespace mlir {
                             }
                         } else if (primName == "add_float") {
                             auto type = primitive.getResult(2).getType();
-                            if (type.isa<Float64Type>()) {
+                            if (llvm::isa<Float64Type>(type)) {
                                 chisel_component += "AddFDynamic(13, 11, 53)";
-                            } else if (type.isa<Float32Type>()) {
+                            } else if (llvm::isa<Float32Type>(type)) {
                                 chisel_component += "AddFDynamic(8, 8, 24)";
                             }
                         } else if (primName == "sub_float") {
                             auto type = primitive.getResult(2).getType();
-                            if (type.isa<Float64Type>()) {
+                            if (llvm::isa<Float64Type>(type)) {
                                 chisel_component += "SubFDynamic(13, 11, 53)";
-                            } else if (type.isa<Float32Type>()) {
+                            } else if (llvm::isa<Float32Type>(type)) {
                                 chisel_component += "SubFDynamic(8, 8, 24)";
                             }
                         } else if (primName == "constant") {
@@ -1529,8 +1536,9 @@ namespace mlir {
                 chisel_component += "\tval go = all_valid\n";
             }
 
-            int II = comp->getAttr("II").cast<IntegerAttr>().getInt();
-            int latency = comp->getAttr("latency").cast<IntegerAttr>().getInt();
+            int II = llvm::cast<IntegerAttr>(comp->getAttr("II")).getInt();
+            int latency =
+                llvm::cast<IntegerAttr>(comp->getAttr("latency")).getInt();
             for (auto &op : *(comp.getBody())) {
                 if (auto hec = dyn_cast<hec::StageSetOp>(op)) {
                     chisel_component += generateMemPorts(comp);
@@ -1666,7 +1674,7 @@ namespace mlir {
 
             }
 
-            int II = comp->getAttr("II").cast<IntegerAttr>().getInt();
+            int II = llvm::cast<IntegerAttr>(comp->getAttr("II")).getInt();
             int latency;
             for (auto &op : *(comp.getBody())) {
                 if (auto hec = dyn_cast<hec::StageSetOp>(op)) {
@@ -1787,7 +1795,7 @@ namespace mlir {
         }
     }
 
-    struct DumpChiselPass : public dumpChiselBase<DumpChiselPass> {
+    struct DumpChiselPass : public impl::dumpChiselBase<DumpChiselPass> {
         void runOnOperation() override {
             mlir::ModuleOp m = getOperation();
             std::string chisel_code = "";
@@ -1805,7 +1813,7 @@ namespace mlir {
                                 found_dynamic = true;
                                 chisel_code += DUMP::dumpHandShakeComponent(comp);
                             } else if (comp.style() == "pipeline") {
-                                if (comp->getAttr("pipeline").cast<StringAttr>().getValue() == "func") {
+                                if (llvm::cast<StringAttr>(comp->getAttr("pipeline")).getValue() == "func") {
                                     chisel_code += DUMP::dumpPipelineFunctionComponent(comp);
                                 } else {
                                     chisel_code += DUMP::dumpPipelineForComponent(comp);
@@ -1817,9 +1825,9 @@ namespace mlir {
                             std::string primName = DUMP::get(primitive.primitiveName());
                             if (primName == "mem") {
                                 std::string memName = DUMP::get(primitive.instanceName());
-                                auto len = primitive->getAttr("len").cast<IntegerAttr>().getInt();
+                                auto len = llvm::cast<IntegerAttr>(primitive->getAttr("len")).getInt();
                                 auto type = DUMP::get(
-                                        primitive->getAttr("ports").cast<StringAttr>().getValue());
+                                        llvm::cast<StringAttr>(primitive->getAttr("ports")).getValue());
                                 int intType;
                                 int use_num = 0;
                                 std::set<std::string> use_set;
@@ -1898,7 +1906,7 @@ namespace mlir {
                 for (auto &module : *(m.getBody())) {
                     if (auto hecDesign = dyn_cast<hec::DesignOp>(module)) {
                         chisel_code =
-                                "class " + DUMP::get(hecDesign.symbol()) + " extends MultiIOModule {\n" + chisel_code;
+                                "class " + DUMP::get(hecDesign.symbol().getValue()) + " extends MultiIOModule {\n" + chisel_code;
                     }
                 }
                 chisel_code += "\tval main = Module(new main)\n";
@@ -1930,9 +1938,9 @@ namespace mlir {
                         std::string primName = DUMP::get(primitive.primitiveName());
                         if (primName == "mem") {
                             std::string memName = DUMP::get(primitive.instanceName());
-                            auto len = primitive->getAttr("len").cast<IntegerAttr>().getInt();
+                            auto len = llvm::cast<IntegerAttr>(primitive->getAttr("len")).getInt();
                             auto type = DUMP::get(
-                                    primitive->getAttr("ports").cast<StringAttr>().getValue());
+                                    llvm::cast<StringAttr>(primitive->getAttr("ports")).getValue());
                             if (type != "w") continue;
                             chisel_code += "\tval " + memName + "_test_addr = IO(Input(UInt(log2Ceil(";
                             chisel_code += std::to_string(len) + ").W)))\n";
@@ -1946,7 +1954,7 @@ namespace mlir {
                     }
                 }
             } else {
-                chisel_code = "class " + DUMP::get(hecDesign.symbol()) + " extends MultiIOModule {\n" + chisel_code;
+                chisel_code = "class " + DUMP::get(hecDesign.symbol().getValue()) + " extends MultiIOModule {\n" + chisel_code;
 		chisel_code += "\tval main = Module(new main)\n";
                 m.walk([&](hec::ComponentOp op) {
                     if (op.getName() != "main") return;

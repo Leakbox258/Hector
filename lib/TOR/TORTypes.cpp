@@ -96,7 +96,7 @@ namespace mlir
 
     inline bool BaseMemRefType::classof(Type type)
     {
-      return type.isa<mlir::tor::MemRefType>();
+      return llvm::isa<mlir::tor::MemRefType>(type);
     }
   } // end tor
 } // end mlir
@@ -114,7 +114,7 @@ namespace mlir
 
     ShapedType ShapedType::clone(ArrayRef<int64_t> shape, Type elementType)
     {
-      if (auto other = dyn_cast<MemRefType>())
+      if (auto other = llvm::dyn_cast<MemRefType>(*this))
       {
         MemRefType::Builder b(other);
         b.setShape(shape);
@@ -126,7 +126,7 @@ namespace mlir
 
     ShapedType ShapedType::clone(ArrayRef<int64_t> shape)
     {
-      if (auto other = dyn_cast<MemRefType>())
+      if (auto other = llvm::dyn_cast<MemRefType>(*this))
       {
         MemRefType::Builder b(other);
         b.setShape(shape);
@@ -137,7 +137,7 @@ namespace mlir
 
     ShapedType ShapedType::clone(Type elementType)
     {
-      if (auto other = dyn_cast<MemRefType>())
+      if (auto other = llvm::dyn_cast<MemRefType>(*this))
       {
         MemRefType::Builder b(other);
         b.setElementType(elementType);
@@ -238,7 +238,7 @@ namespace mlir
       //   return vectorType.getShape();
       // if (auto tensorType = dyn_cast<RankedTensorType>())
       //   return tensorType.getShape();
-      return cast<MemRefType>().getShape();
+      return llvm::cast<MemRefType>(*this).getShape();
     }
 
     int64_t ShapedType::getNumDynamicDims() const
@@ -288,8 +288,7 @@ namespace mlir
   namespace tor
   {
 
-    ::mlir::Type MemRefType::parse(::mlir::MLIRContext *context,
-                                   ::mlir::DialectAsmParser &parser)
+    ::mlir::Type MemRefType::parse(::mlir::AsmParser &parser)
     {
       SmallVector<int64_t, 2> dims;
       SmallVector<mlir::StringAttr, 2> properties;
@@ -359,7 +358,7 @@ namespace mlir
       return success();
     }
 
-    void MemRefType::print(::mlir::DialectAsmPrinter &printer) const
+    void MemRefType::print(::mlir::AsmPrinter &printer) const
     {
       printer << "memref<";
       auto shape = getShape();
@@ -397,29 +396,6 @@ namespace mlir
 #define GET_TYPEDEF_LIST
 #include "TOR/TORTypes.cpp.inc"
           >();
-    }
-
-    /// Parses a type registered to this dialect. Parse out the mnemonic then invoke
-    /// the tblgen'd type parser dispatcher.
-    Type TORDialect::parseType(DialectAsmParser &parser) const
-    {
-      llvm::StringRef mnemonic;
-      if (parser.parseKeyword(&mnemonic))
-        return Type();
-      Type type;
-      auto parseResult = generatedTypeParser(getContext(), parser, mnemonic, type);
-      if (parseResult.hasValue())
-        return type;
-      return Type();
-    }
-
-    /// Print a type registered to this dialect. Try the tblgen'd type printer
-    /// dispatcher then fail since all RTL types are defined via ODS.
-    void TORDialect::printType(Type type, DialectAsmPrinter &printer) const
-    {
-      if (succeeded(generatedTypePrinter(type, printer)))
-        return;
-      llvm_unreachable("unexpected 'tor' type");
     }
 
     namespace detail

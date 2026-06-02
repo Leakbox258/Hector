@@ -9,7 +9,6 @@
 // include the header directly.
 #include "mlir/Support/LogicalResult.h"
 
-
 // Forward declarations of classes to be imported in to the circt namespace.
 namespace mlir {
 class ArrayAttr;
@@ -86,18 +85,14 @@ struct LogicalResult;
 struct MemRefAccess;
 struct OperationState;
 
-template <typename SourceOp>
-struct OpConversionPattern;
-template <typename T>
-class OperationPass;
-template <typename SourceOp>
-struct OpRewritePattern;
+template <typename SourceOp> struct OpConversionPattern;
+template <typename T> class OperationPass;
+template <typename SourceOp> struct OpRewritePattern;
 
 using DefaultTypeStorage = TypeStorage;
 using OpAsmSetValueNameFn = function_ref<void(Value, StringRef)>;
-using NamedAttribute = std::pair<Identifier, Attribute>;
 
-namespace OpTrait {}
+namespace Trait {}
 
 } // namespace mlir
 #endif // TOR_LLVM_H

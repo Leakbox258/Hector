@@ -1,23 +1,22 @@
 #include "TOR/PassDetail.h"
-#include "mlir/Analysis/Utils.h"
+#include "mlir/Dialect/Affine/Analysis/Utils.h"
 #include "llvm/ADT/MapVector.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
 
-#include "mlir/Dialect/SCF/SCF.h"
-#include "mlir/Dialect/StandardOps/IR/Ops.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "TOR/TOR.h"
 #include "TOR/TORDialect.h"
 
 #include "mlir/Pass/Pass.h"
-#include "mlir/IR/BlockAndValueMapping.h"
+#include "mlir/IR/IRMapping.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/PatternMatch.h"
 #include <mlir/Transforms/DialectConversion.h>
 #include "mlir/Transforms/Passes.h"
-#include "mlir/Transforms/Utils.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
 #include <map>
@@ -69,16 +68,16 @@ namespace mlir {
         std::map<Operation *, int> endNode;
 
         int getWidth(Type type) {
-            if (auto integer = type.dyn_cast<IntegerType>()) {
+            if (auto integer = llvm::dyn_cast<IntegerType>(type)) {
                 if (integer.getWidth() == 1000) {
                     return 0;
                 }
                 return integer.getWidth();
             }
-            if (type.isa<Float32Type>()) {
+            if (llvm::isa<Float32Type>(type)) {
                 return 32;
             }
-            if (type.isa<Float64Type>()) {
+            if (llvm::isa<Float64Type>(type)) {
                 return 64;
             } else {
                 type.dump();
@@ -153,7 +152,7 @@ namespace mlir {
             }
             double length = getDelay(op);
             for (auto val : op->getOperands()) {
-                if (!val.isa<BlockArgument>()) {
+                if (!llvm::isa<BlockArgument>(val)) {
                     auto sop = val.getDefiningOp();
                     if (isa<ConstantOp, tor::AllocOp>(sop)) {
                         continue;
@@ -203,7 +202,7 @@ namespace mlir {
 
             if (beginNode.find(op) != beginNode.end()) {
                 for (auto val : op->getOperands()) {
-                    if (!val.isa<BlockArgument>() && !isa<ConstantOp>(val.getDefiningOp())) {
+                    if (!llvm::isa<BlockArgument>(val) && !isa<ConstantOp>(val.getDefiningOp())) {
                         if (!check(val.getDefiningOp(), beginNode[op])) {
                             return false;
                         }
@@ -256,14 +255,14 @@ namespace mlir {
                         MAX_INDEX = std::max(MAX_INDEX, succ.time());
                         for (unsigned i = 0; i < succ.points().size(); i++) {
                             auto from = succ.points()[i];
-                            auto comp_edge = succ.edges()[i].cast<DictionaryAttr>();
+                            auto comp_edge = llvm::cast<DictionaryAttr>(succ.edges()[i]);
                             bool pipeline = comp_edge.get("pipeline").operator bool();
                             if (pipeline) {
 //                                succ->dump();
                             }
                             auto edge_info = comp_edge.get("type");
-                            int index = from.cast<IntegerAttr>().getInt();
-                            auto info = edge_info.cast<StringAttr>().getValue().str();
+                            int index = llvm::cast<IntegerAttr>(from).getInt();
+                            auto info = llvm::cast<StringAttr>(edge_info).getValue().str();
                             if (info.find("dynamic") != StringRef::npos) {
                                 timeGraph[index].push_back(
                                         TimeEdge(index, succ.time(), succ.edges()[i], false,
@@ -352,7 +351,7 @@ bind_operation(sop.starttime(), sop.endtime(), op);
 
 #undef TIME_NODE
     }
-    struct CheckPass : public TORCheckBase<CheckPass> {
+    struct CheckPass : public impl::TORCheckBase<CheckPass> {
         void runOnOperation() override {
             mlir::ModuleOp m = getOperation();
             std::string filename;
@@ -376,7 +375,8 @@ bind_operation(sop.starttime(), sop.endtime(), op);
                         /*mlir::RewritePatternSet patterns(&getContext());
                         patterns.insert<check::CheckSchedule>(op.getContext());
 
-                        if (failed(applyOpPatternsAndFold(op, std::move(patterns))))
+                        SmallVector<Operation *> ops{op.getOperation()};
+                        if (failed(applyOpPatternsAndFold(ops, std::move(patterns))))
                             return WalkResult::advance();
 
                         return WalkResult::advance();*/

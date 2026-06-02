@@ -11,6 +11,8 @@
 using namespace mlir;
 using namespace mlir::tor;
 
+#include "TOR/TORDialect.cpp.inc"
+
 struct TORInlinerInterface : public DialectInlinerInterface {
   using DialectInlinerInterface::DialectInlinerInterface;
 
@@ -18,7 +20,7 @@ struct TORInlinerInterface : public DialectInlinerInterface {
     return true;
   }
 
-  void handleTerminator(Operation *op, ArrayRef<Value> valuesToRepl) const final {
+  void handleTerminator(Operation *op, ValueRange valuesToRepl) const final {
     auto returnOp = cast<tor::ReturnOp>(op);
 
     assert(returnOp.getNumOperands() == valuesToRepl.size());
@@ -39,4 +41,3 @@ void TORDialect::initialize()
 
 // Provide implementations for the enums we use.
 #include "TOR/TOREnums.cpp.inc"
-

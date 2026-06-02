@@ -16,9 +16,20 @@ def TimeGraphOp : TOROp<"timegraph", [HasParent<"FuncOp">,
                        I32Attr : $endtime);
   let regions = (region SizedRegion<1> : $region);
 
-  let printer = "return ::print(p, *this);";
-  let parser = "return ::parse$cppClass(parser, result);";
-  let verifier = ?;
+  let extraClassDeclaration = [{
+    uint32_t starttime() {
+      return ::llvm::cast<::mlir::IntegerAttr>(
+                 (*this)->getAttr("starttime")).getInt();
+    }
+    uint32_t endtime() {
+      return ::llvm::cast<::mlir::IntegerAttr>(
+                 (*this)->getAttr("endtime")).getInt();
+    }
+    ::mlir::Region &region() { return getRegion(); }
+    ::mlir::Block *getBody() { return &getRegion().front(); }
+  }];
+
+  let hasCustomAssemblyFormat = 1;
 }
 
 def FinishOp : TOROp<"finish", [Terminator]> {
@@ -27,7 +38,6 @@ def FinishOp : TOROp<"finish", [Terminator]> {
     The 'tor.finish' operation serves as the terminator of a time graph.
   }];
   let assemblyFormat = "attr-dict";
-  let verifier = ?;
 }
 
 def StartTimeOp : TOROp<"starttime", [/*HasParent<"FuncOp">*/]> {
@@ -42,7 +52,7 @@ def StartTimeOp : TOROp<"starttime", [/*HasParent<"FuncOp">*/]> {
   let arguments = (ins I32Attr : $starttime);
 
   let assemblyFormat = "$starttime attr-dict";
-  let verifier = "return ::verify$cppClass(*this);";
+  let hasVerifier = 1;
 }
 
 def EndTimeOp : TOROp<"endtime", [/*HasParent<"FuncOp">,*/Terminator]> {
@@ -59,7 +69,7 @@ def EndTimeOp : TOROp<"endtime", [/*HasParent<"FuncOp">,*/Terminator]> {
 
   let assemblyFormat = "$endtime attr-dict";
 
-  let verifier = "return ::verify$cppClass(*this);";
+  let hasVerifier = 1;
 }
 
 
@@ -77,13 +87,22 @@ def SuccTimeOp : TOROp<"succ", [HasParent<"TimeGraphOp">]> {
                        ArrayAttr : $points, 
                        ArrayAttr : $edges);
 
+  let extraClassDeclaration = [{
+    uint32_t time() { return getTime(); }
+    ::mlir::ArrayAttr points() { return getPoints(); }
+    ::mlir::ArrayAttr edges() { return getEdges(); }
+    void timeAttr(::mlir::IntegerAttr attr) { setTimeAttr(attr); }
+    void pointsAttr(::mlir::ArrayAttr attr) { setPointsAttr(attr); }
+    void edgesAttr(::mlir::ArrayAttr attr) { setEdgesAttr(attr); }
+  }];
+
   let assemblyFormat = [{$time `:` $points $edges attr-dict}];
-  let verifier = "return ::verify$cppClass(*this);";
+  let hasVerifier = 1;
 }
 
 def IfOp : TOROp<"if", [/*DeclareOpInterfaceMethods<RegionBranchOpInterface>,*/
                          SingleBlockImplicitTerminator<"tor::YieldOp">,
-                         RecursiveSideEffects, 
+                         RecursiveMemoryEffects,
                          NoRegionArguments]> {
   let summary = "if-then-else operation";
 
@@ -106,13 +125,30 @@ def IfOp : TOROp<"if", [/*DeclareOpInterfaceMethods<RegionBranchOpInterface>,*/
   let results = (outs Variadic<AnyType> : $results);
   let regions = (region SizedRegion<1> : $thenRegion, AnyRegion : $elseRegion);
 
-  let printer = "return ::print(p, *this);";
-  let parser = "return ::parse$cppClass(parser, result);";
-  let verifier = "return ::verify$cppClass(*this);";
+  let extraClassDeclaration = [{
+    ::mlir::Value condition() { return getCondition(); }
+    ::mlir::Operation::result_range results() { return getResults(); }
+    uint32_t starttime() {
+      return ::llvm::cast<::mlir::IntegerAttr>(
+                 (*this)->getAttr("starttime")).getInt();
+    }
+    uint32_t endtime() {
+      return ::llvm::cast<::mlir::IntegerAttr>(
+                 (*this)->getAttr("endtime")).getInt();
+    }
+    ::mlir::Region &thenRegion() { return getThenRegion(); }
+    ::mlir::Region &elseRegion() { return getElseRegion(); }
+    ::mlir::Block *getBody(unsigned index) {
+      return &getOperation()->getRegion(index).front();
+    }
+  }];
+
+  let hasCustomAssemblyFormat = 1;
+  let hasVerifier = 1;
 }
 
 def ForOp : TOROp<"for", [SingleBlockImplicitTerminator<"tor::YieldOp">,
-                           RecursiveSideEffects]> {
+                           RecursiveMemoryEffects]> {
   let summary = "for operation";
   let description = [{
     The "tor.for" operation represents a loop take 3 SSA value as operands
@@ -161,19 +197,33 @@ def ForOp : TOROp<"for", [SingleBlockImplicitTerminator<"tor::YieldOp">,
   let builders = [
     OpBuilder<(ins "Value" : $lowerBound, "Value" : $upperBound, "Value" : $step,
       "IntegerAttr" : $starttime, "IntegerAttr" : $endtime,
-      CArg<"ValueRange", "llvm::None"> : $initArgs,
+      CArg<"ValueRange", "{}"> : $initArgs,
       CArg<"function_ref<void(OpBuilder &, Location, Value, ValueRange)>", 
         "nullptr">)>
   ];
   
-  let printer = "return ::print(p, *this);";
-  let parser = "return ::parse$cppClass(parser, result);";
-  let verifier = "return ::verify$cppClass(*this);";
+  let hasCustomAssemblyFormat = 1;
+  let hasVerifier = 1;
 
   let extraClassDeclaration = [{
     using BodyBuilderFn = function_ref<void(OpBuilder &, Location, Value, ValueRange)>;
     unsigned getNumInductionVars() { return 1; }
     unsigned getNumControlOperands() { return 3; }
+    ::mlir::Region &region() { return getRegion(); }
+    ::mlir::Block *getBody() { return &getRegion().front(); }
+    ::mlir::Value lowerBound() { return getLowerBound(); }
+    ::mlir::Value upperBound() { return getUpperBound(); }
+    ::mlir::Value step() { return getStep(); }
+    uint32_t starttime() {
+      return ::llvm::cast<::mlir::IntegerAttr>(
+                 (*this)->getAttr("starttime")).getInt();
+    }
+    uint32_t endtime() {
+      return ::llvm::cast<::mlir::IntegerAttr>(
+                 (*this)->getAttr("endtime")).getInt();
+    }
+    ::mlir::Operation::operand_range initArgs() { return getInitArgs(); }
+    ::mlir::Operation::result_range results() { return getResults(); }
     Value getInductionVar() { return getBody()->getArgument(0); }
     Block::BlockArgListType getRegionIterArgs() {
       return getBody()->getArguments().drop_front(getNumInductionVars());
@@ -193,7 +243,7 @@ def ForOp : TOROp<"for", [SingleBlockImplicitTerminator<"tor::YieldOp">,
 
 def WhileOp : TOROp<"while", 
     [/*DeclareOpInterfaceMethods<RegionBranchOpInterface>,*/
-     RecursiveSideEffects]> {
+     RecursiveMemoryEffects]> {
   let summary = "while operation"; 
   let description = [{
     The "tor.while" operation represents a general loop structure;
@@ -215,14 +265,28 @@ def WhileOp : TOROp<"while",
   let results = (outs Variadic<AnyType> : $results);
   let regions = (region SizedRegion<1> : $before, SizedRegion<1> : $after);
 
-  let printer = "return ::print(p, *this);";
-  let parser = "return ::parse$cppClass(parser, result);";
-  let verifier = "return ::verify$cppClass(*this);";
+  let extraClassDeclaration = [{
+    ::mlir::Operation::operand_range inits() { return getInits(); }
+    ::mlir::Operation::result_range results() { return getResults(); }
+    uint32_t starttime() {
+      return ::llvm::cast<::mlir::IntegerAttr>(
+                 (*this)->getAttr("starttime")).getInt();
+    }
+    uint32_t endtime() {
+      return ::llvm::cast<::mlir::IntegerAttr>(
+                 (*this)->getAttr("endtime")).getInt();
+    }
+    ::mlir::Region &before() { return getBefore(); }
+    ::mlir::Region &after() { return getAfter(); }
+  }];
+
+  let hasCustomAssemblyFormat = 1;
+  let hasVerifier = 1;
 }
 
 
 def ConditionOp : TOROp<"condition",
-                         [HasParent<"WhileOp">, NoSideEffect, Terminator]> {
+                         [HasParent<"WhileOp">, Pure, Terminator]> {
   let summary = "loop continuation condition";
   let description = [{
     This operation accepts the continuation (i.e., inverse of exit) condition
@@ -233,13 +297,17 @@ def ConditionOp : TOROp<"condition",
 
   let arguments = (ins I1:$condition, Variadic<AnyType>:$args);
 
+  let extraClassDeclaration = [{
+    ::mlir::Value condition() { return getCondition(); }
+    ::mlir::Operation::operand_range args() { return getArgs(); }
+  }];
+
   let assemblyFormat =
       [{ `(` $condition `)` attr-dict ($args^ `:` type($args))? }];
 
-  let verifier = ?;
 }
 
-def YieldOp : TOROp<"yield", [NoSideEffect, ReturnLike, Terminator, 
+def YieldOp : TOROp<"yield", [Pure, ReturnLike, Terminator,
                                ParentOneOf<["IfOp", "WhileOp", "ForOp"]>]> {
   let summary = "yield operation";
   let description = [{
@@ -248,9 +316,12 @@ def YieldOp : TOROp<"yield", [NoSideEffect, ReturnLike, Terminator,
 
   let arguments = (ins Variadic<AnyType> : $results);
 
+  let extraClassDeclaration = [{
+    ::mlir::Operation::operand_range results() { return getResults(); }
+  }];
+
   let builders = [OpBuilder<(ins), [{ /* nothing to do */ }]>];
   let assemblyFormat = "attr-dict ($results^ `:` type($results))?";
-  let verifier = ?;  
 }
 
 
@@ -267,22 +338,26 @@ def DesignOp : TOROp<"design", [
     containing a list of TOR func. This must include a "main" func.
   }];
   let arguments = (ins FlatSymbolRefAttr : $symbol);
-  let regions = (region SizedRegion<1>: $body);
+  let regions = (region SizedRegion<1>: $bodyRegion);
 
   let extraClassDeclaration = [{
     // return the body of a tor design.
     Block *getBody() {
       return &getOperation()->getRegion(0).front();
     }
+    Region &body() { return getBodyRegion(); }
+    ::mlir::FlatSymbolRefAttr symbol() {
+      return ::llvm::cast<::mlir::FlatSymbolRefAttr>((*this)->getAttr("symbol"));
+    }
     
   }];
 
-  let assemblyFormat = "$symbol $body attr-dict";
-  let verifier = "return ::verify$cppClass(*this);";
+  let assemblyFormat = "$symbol $bodyRegion attr-dict";
+  let hasVerifier = 1;
 }
 
 def FuncOp: TOROp<"func", [
-    /*IsolatedFromAbove, */FunctionLike, Symbol, RegionKindInterface, 
+    /*IsolatedFromAbove, */FunctionOpInterface, Symbol, RegionKindInterface,
     CallableOpInterface,
     HasParent<"DesignOp">
     /*,
@@ -295,7 +370,7 @@ def FuncOp: TOROp<"func", [
     it has some extra verification conditions, such as 'each value must only
     have a single use'.
   }];
-  let arguments = (ins);
+  let arguments = (ins TypeAttrOf<FunctionType>:$function_type);
   let results = (outs);
   let regions = (region SizedRegion<1>:$body);
 
@@ -306,68 +381,56 @@ def FuncOp: TOROp<"func", [
                    CArg<"ArrayRef<NamedAttrList>", "{}">:$argAttrs)>
   ];
 
-  let printer = "return ::print(p, *this);";
-  let parser = "return ::parse$cppClass(parser, result);";
-  let verifier = "return ::verify$cppClass(*this);";
+  let hasCustomAssemblyFormat = 1;
+  let hasVerifier = 1;
 
   let extraClassDeclaration = [{
-    using FunctionLike::front;
-    using FunctionLike::getBody;
-
     static RegionKind getRegionKind(unsigned index) { 
       return RegionKind::SSACFG;
     }
     
-    Block *getBodyBlock() { return &body().front();}
+    Region &body() { return getBody(); }
+    Block *getBodyBlock() { return &getBody().front();}
     
-    StringAttr getNameAttr() {
-      return (*this)->getAttrOfType<StringAttr>(
-        ::mlir::SymbolTable::getSymbolAttrName());
+    FunctionType getType() { return getFunctionType(); }
+    Type cloneTypeWith(TypeRange inputs, TypeRange results) {
+      return FunctionType::get((*this)->getContext(), inputs, results);
     }
-
-    StringRef getName() {
-      return getNameAttr().getValue();
+    ArrayRef<Type> getArgumentTypes() {
+      return getType().getInputs();
     }
-
-    FunctionType getType() {
-      return (*this)->getAttrOfType<TypeAttr>(getTypeAttrName())
-          .getValue()
-          .cast<FunctionType>();
+    ArrayRef<Type> getResultTypes() {
+      return getType().getResults();
     }
 
     Region *getCallableRegion() {
       return isExternal() ? nullptr : &getBody();
     }
-
-    ArrayRef<Type> getCallableResults() {
-      return getType().getResults();
+    ArrayAttr getArgAttrsAttr() {
+      return (*this)->getAttrOfType<ArrayAttr>("arg_attrs");
+    }
+    ArrayAttr getResAttrsAttr() {
+      return (*this)->getAttrOfType<ArrayAttr>("res_attrs");
+    }
+    void setArgAttrsAttr(ArrayAttr attrs) {
+      (*this)->setAttr("arg_attrs", attrs);
+    }
+    void setResAttrsAttr(ArrayAttr attrs) {
+      (*this)->setAttr("res_attrs", attrs);
+    }
+    Attribute removeArgAttrsAttr() {
+      return (*this)->removeAttr("arg_attrs");
+    }
+    Attribute removeResAttrsAttr() {
+      return (*this)->removeAttr("res_attrs");
     }
 
-    // This trait needs access to the hooks defined below.
-    friend class OpTrait::FunctionLike<FuncOp>;
-
-    /// Returns the number of arguments, implementing OpTrait::FunctionLike.
-    unsigned getNumFuncArguments() { return getType().getInputs().size(); }
-    /// Returns the number of results, implementing OpTrait::FunctionLike.
-    unsigned getNumFuncResults() { return getType().getResults().size(); }
-
-    /// Hook for OpTrait::FunctionLike, called after verifying that the 'type'
-    /// attribute is present and checks if it holds a function type.  Ensures
-    /// getType, getNumFuncArguments, and getNumFuncResults can be called
-    ///  safely.
-    LogicalResult verifyType() {
-      auto type = getTypeAttr().getValue();
-      if (!type.isa<FunctionType>())
-        return emitOpError("requires '" + getTypeAttrName() +
-                           "' attribute of function type");
-      return success();
-    }
   }];
 
 }
 
 def ReturnOp : TOROp<"return", [Terminator, ParentOneOf<["FuncOp"/*, "ModuleOp"*/]>,
-                               NoSideEffect, ReturnLike]> {
+                               Pure, ReturnLike]> {
   let summary = "tor func terminator return";
   let description = [{
     The "tor.return" operation represents the termination of a TOR func.
@@ -376,9 +439,8 @@ def ReturnOp : TOROp<"return", [Terminator, ParentOneOf<["FuncOp"/*, "ModuleOp"*
   let arguments = (ins Variadic<AnyType> : $operands/*,
                        I32Attr : $time*/);
   
-  let printer = "return ::print(p, *this);";
-  let parser = "return ::parse$cppClass(parser, result);";
-  let verifier = "return ::verify$cppClass(*this);";
+  let hasCustomAssemblyFormat = 1;
+  let hasVerifier = 1;
 }
 
 def CallOp : TOROp<"call", [CallOpInterface/*,
@@ -396,12 +458,26 @@ def CallOp : TOROp<"call", [CallOpInterface/*,
   let results = (outs Variadic<AnyType>);
 
   let extraClassDeclaration = [{
-    StringRef getCallee() { return callee(); }
+    StringRef callee() { return getCallee(); }
+    uint32_t starttime() {
+      return ::llvm::cast<::mlir::IntegerAttr>(
+                 (*this)->getAttr("starttime")).getInt();
+    }
+    uint32_t endtime() {
+      return ::llvm::cast<::mlir::IntegerAttr>(
+                 (*this)->getAttr("endtime")).getInt();
+    }
     FunctionType getCalleeType();
+    void setCalleeFromCallable(CallInterfaceCallable callee) {
+      (*this)->setAttr("callee", callee.dyn_cast<SymbolRefAttr>());
+    }
 
     /// Get the argument operands to the called function.
     operand_range getArgOperands() {
       return {arg_operand_begin(), arg_operand_end()};
+    }
+    MutableOperandRange getArgOperandsMutable() {
+      return MutableOperandRange(*this, 0, getOperands().size());
     }
 
     operand_iterator arg_operand_begin() { return operand_begin(); }
@@ -411,11 +487,28 @@ def CallOp : TOROp<"call", [CallOpInterface/*,
     CallInterfaceCallable getCallableForCallee() {
       return (*this)->getAttrOfType<SymbolRefAttr>("callee");
     }
+    ArrayAttr getArgAttrsAttr() {
+      return (*this)->getAttrOfType<ArrayAttr>("arg_attrs");
+    }
+    ArrayAttr getResAttrsAttr() {
+      return (*this)->getAttrOfType<ArrayAttr>("res_attrs");
+    }
+    void setArgAttrsAttr(ArrayAttr attrs) {
+      (*this)->setAttr("arg_attrs", attrs);
+    }
+    void setResAttrsAttr(ArrayAttr attrs) {
+      (*this)->setAttr("res_attrs", attrs);
+    }
+    Attribute removeArgAttrsAttr() {
+      return (*this)->removeAttr("arg_attrs");
+    }
+    Attribute removeResAttrsAttr() {
+      return (*this)->removeAttr("res_attrs");
+    }
   }];
 
   let assemblyFormat = [{
     $callee `(` $operands `)` `on` ` ` `(` $starttime `to` $endtime `)` attr-dict 
     `:` functional-type($operands, results)
   }];
-  let verifier = ?;
 }

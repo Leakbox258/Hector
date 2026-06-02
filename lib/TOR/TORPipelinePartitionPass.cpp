@@ -1,23 +1,22 @@
 #include "TOR/PassDetail.h"
-#include "mlir/Analysis/Utils.h"
+#include "mlir/Dialect/Affine/Analysis/Utils.h"
 #include "llvm/ADT/MapVector.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
 
-#include "mlir/Dialect/SCF/SCF.h"
-#include "mlir/Dialect/StandardOps/IR/Ops.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "TOR/TOR.h"
 #include "TOR/TORDialect.h"
 
 #include "mlir/Pass/Pass.h"
-#include "mlir/IR/BlockAndValueMapping.h"
+#include "mlir/IR/IRMapping.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/PatternMatch.h"
 #include <mlir/Transforms/DialectConversion.h>
 #include "mlir/Transforms/Passes.h"
-#include "mlir/Transforms/Utils.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
 #include <map>
@@ -488,7 +487,8 @@ namespace mlir {
             LogicalResult
             matchAndRewrite(tor::FuncOp funcOp, PatternRewriter &rewriter) const override {
                 if (funcOp->hasAttr("strategy")) {
-                    if (auto str = funcOp->getAttr("strategy").dyn_cast<StringAttr>()) {
+                    if (auto str = llvm::dyn_cast<StringAttr>(
+                            funcOp->getAttr("strategy"))) {
                         if (str.getValue() != "mixed") {
                             funcOp->setAttr("strategy", StringAttr::get(getContext(), "mixed"));
                         } else {
@@ -535,29 +535,29 @@ namespace mlir {
                             MAX_INDEX = std::max(MAX_INDEX, succ.time());
                             for (unsigned i = 0; i < succ.points().size(); i++) {
                                 auto from = succ.points()[i];
-                                auto comp_edge = succ.edges()[i].cast<DictionaryAttr>();
+                                auto comp_edge = llvm::cast<DictionaryAttr>(succ.edges()[i]);
                                 auto edge = comp_edge.get("format");
-                                int index = from.cast<IntegerAttr>().getInt();
-                                auto info = edge.cast<StringAttr>().getValue().str();
+                                int index = llvm::cast<IntegerAttr>(from).getInt();
+                                auto info = llvm::cast<StringAttr>(edge).getValue().str();
                                 if (info.find("static:") != StringRef::npos) {
                                     timeGraph[index].push_back(
-                                            TimeEdge(succ.time(), comp_edge.get("times").cast<IntegerAttr>().getInt(),
+                                            TimeEdge(succ.time(), llvm::cast<IntegerAttr>(comp_edge.get("times")).getInt(),
                                                      false, std::stoi(info.substr(7))));
-                                } else if (edge.cast<StringAttr>().getValue() == "static-while+pipeline") {
+                                } else if (llvm::cast<StringAttr>(edge).getValue() == "static-while+pipeline") {
                                     timeGraph[index].push_back(
-                                            TimeEdge(succ.time(), comp_edge.get("times").cast<IntegerAttr>().getInt(),
+                                            TimeEdge(succ.time(), llvm::cast<IntegerAttr>(comp_edge.get("times")).getInt(),
                                                      true, 0, true));
-                                } else if (edge.cast<StringAttr>().getValue() == "static-for+pipeline") {
+                                } else if (llvm::cast<StringAttr>(edge).getValue() == "static-for+pipeline") {
                                     timeGraph[index].push_back(
-                                            TimeEdge(succ.time(), comp_edge.get("times").cast<IntegerAttr>().getInt(),
+                                            TimeEdge(succ.time(), llvm::cast<IntegerAttr>(comp_edge.get("times")).getInt(),
                                                      true, 0, true));
-                                } else if (edge.cast<StringAttr>().getValue() == "static-while") {
+                                } else if (llvm::cast<StringAttr>(edge).getValue() == "static-while") {
                                     timeGraph[index].push_back(
-                                            TimeEdge(succ.time(), comp_edge.get("times").cast<IntegerAttr>().getInt(),
+                                            TimeEdge(succ.time(), llvm::cast<IntegerAttr>(comp_edge.get("times")).getInt(),
                                                      true, 0, false));
-                                } else if (edge.cast<StringAttr>().getValue() == "static-for") {
+                                } else if (llvm::cast<StringAttr>(edge).getValue() == "static-for") {
                                     timeGraph[index].push_back(
-                                            TimeEdge(succ.time(), comp_edge.get("times").cast<IntegerAttr>().getInt(),
+                                            TimeEdge(succ.time(), llvm::cast<IntegerAttr>(comp_edge.get("times")).getInt(),
                                                      true, 0, false));
                                 } else {
                                     edge.dump();
@@ -614,14 +614,14 @@ bind_operation(sop.starttime(), sop.endtime(), op);
                             auto succ = cast<tor::SuccTimeOp>(succOp[edge.to]);
                             std::vector<Attribute> edge_array;
                             for (size_t j = 0; j < succ.points().size(); j++) {
-                                if (succ.points()[j].cast<IntegerAttr>().getInt() == i) {
+                                if (llvm::cast<IntegerAttr>(succ.points()[j]).getInt() == i) {
                                     std::vector<NamedAttribute> dict;
-                                    for (auto entry : succ.edgesAttr()[j].cast<DictionaryAttr>()) {
-                                        if (entry.first.str() != "format") {
+                                    for (auto entry : llvm::cast<DictionaryAttr>(succ.getEdgesAttr()[j])) {
+                                        if (entry.getName().str() != "format") {
                                             dict.push_back(entry);
                                         } else {
                                             dict.push_back(
-                                                    NamedAttribute(entry.first,
+                                                    NamedAttribute(entry.getName(),
                                                                    StringAttr::get(getContext(), "dynamic")));
                                         }
                                     }
@@ -643,14 +643,15 @@ bind_operation(sop.starttime(), sop.endtime(), op);
 
 #undef TIME_NODE
     }
-    struct PipelinePartitionPass : public TORPipelinePartitionBase<PipelinePartitionPass> {
+    struct PipelinePartitionPass : public impl::TORPipelinePartitionBase<PipelinePartitionPass> {
         void runOnOperation() override {
             mlir::ModuleOp m = getOperation();
             if (m.walk([&](tor::FuncOp op) {
                         mlir::RewritePatternSet patterns(&getContext());
                         patterns.insert<partition::SchedulePartition>(op.getContext());
 
-                        if (failed(applyOpPatternsAndFold(op, std::move(patterns))))
+                        SmallVector<Operation *> ops{op.getOperation()};
+                        if (failed(applyOpPatternsAndFold(ops, std::move(patterns))))
                             return WalkResult::advance();
 //                        applyOpPatternsAndFold(op, std::move(patterns));
 

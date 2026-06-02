@@ -12,6 +12,13 @@ examples/hec_dyn/*
 .metals/*
 .cache/*
 
+# clangd
+.clangd
+
+# LLM
+.agents
+.codex
+
 # Fail log
 *.log
 

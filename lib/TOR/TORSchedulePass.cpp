@@ -1,5 +1,5 @@
 #include "TOR/PassDetail.h"
-#include "mlir/Analysis/Utils.h"
+#include "mlir/Dialect/Affine/Analysis/Utils.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/OperationSupport.h"
@@ -9,15 +9,15 @@
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
 
-#include "mlir/Dialect/SCF/SCF.h"
-#include "mlir/Dialect/StandardOps/IR/Ops.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "TOR/TOR.h"
 #include "TOR/TORDialect.h"
 #include "TOR/Passes.h"
 
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassManager.h"
-#include "mlir/IR/BlockAndValueMapping.h"
+#include "mlir/IR/IRMapping.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/MLIRContext.h"
@@ -25,7 +25,6 @@
 #include "mlir/IR/Matchers.h"
 #include <mlir/Transforms/DialectConversion.h>
 #include "mlir/Transforms/Passes.h"
-#include "mlir/Transforms/Utils.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "mlir/Transforms/FoldUtils.h"
 #include "mlir/Rewrite/PatternApplicator.h"
@@ -114,19 +113,19 @@ public:
 
     if (edge.length > 0)
       retStr += std::string(":") + std::to_string(edge.length);
-    attrs.push_back(std::make_pair(mlir::Identifier::get("type", ctx), 
-        mlir::StringAttr::get(ctx, retStr)));
+    attrs.emplace_back(mlir::StringAttr::get(ctx, "type"),
+                       mlir::StringAttr::get(ctx, retStr));
 
     if (edge.II != -1) {
-      attrs.push_back(std::make_pair(mlir::Identifier::get("pipeline", ctx), 
-          mlir::IntegerAttr::get(mlir::IntegerType::get(ctx, 32), 1)));
-      attrs.push_back(std::make_pair(mlir::Identifier::get("II", ctx), 
-          mlir::IntegerAttr::get(mlir::IntegerType::get(ctx, 32), edge.II)));
+      attrs.emplace_back(mlir::StringAttr::get(ctx, "pipeline"),
+                         mlir::IntegerAttr::get(mlir::IntegerType::get(ctx, 32), 1));
+      attrs.emplace_back(mlir::StringAttr::get(ctx, "II"),
+                         mlir::IntegerAttr::get(mlir::IntegerType::get(ctx, 32), edge.II));
     }
 
     if (edge.tripcount != -1)
-      attrs.push_back(std::make_pair(mlir::Identifier::get("times", ctx), 
-        mlir::IntegerAttr::get(mlir::IntegerType::get(ctx, 32), edge.tripcount)));
+      attrs.emplace_back(mlir::StringAttr::get(ctx, "times"),
+                         mlir::IntegerAttr::get(mlir::IntegerType::get(ctx, 32), edge.tripcount));
 
     mlir::DictionaryAttr dict = mlir::DictionaryAttr::get(ctx, attrs);
     return dict;
@@ -449,8 +448,8 @@ namespace mlir
       llvm::SmallVector<NamedAttribute, 4> attributes;
       for (const auto &attr : funcOp->getAttrs())
       {
-        if (attr.first == SymbolTable::getSymbolAttrName() ||
-            attr.first == impl::getTypeAttrName())
+        if (attr.getName() == SymbolTable::getSymbolAttrName() ||
+            attr.getName() == funcOp.getFunctionTypeAttrName())
           continue;
         attributes.push_back(attr);
       }
@@ -497,7 +496,7 @@ namespace mlir
     }
   };
 
-  struct TORSchedulePass : public TORScheduleBase<TORSchedulePass>
+  struct TORSchedulePass : public impl::TORScheduleBase<TORSchedulePass>
   {
     void runOnOperation() override {
       mlir::tor::DesignOp designOp = getOperation();
@@ -507,7 +506,8 @@ namespace mlir
           // IterativeConstantFolding(op);
 	  mlir::RewritePatternSet patterns(&getContext());
 	  patterns.insert<FuncOpLowering>(designOp.getContext());
-          if (failed(applyOpPatternsAndFold(op, std::move(patterns))))
+          SmallVector<Operation *> ops{op.getOperation()};
+          if (failed(applyOpPatternsAndFold(ops, std::move(patterns))))
             WalkResult::interrupt();
           return WalkResult::advance();
         }

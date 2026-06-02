@@ -5,8 +5,8 @@
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Support/LLVM.h"
 
-#include "mlir/Dialect/SCF/SCF.h"
-#include "mlir/Dialect/StandardOps/IR/Ops.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/Matchers.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Support/LogicalResult.h"
@@ -29,14 +29,13 @@ struct ConstIndexConversion : public OpConversionPattern<ConstantOp> {
   using OpConversionPattern<ConstantOp>::OpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(ConstantOp op, ArrayRef<Value> operands,
+  matchAndRewrite(ConstantOp op, ConstantOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-
     auto value = op.getValue();
     rewriter.setInsertionPoint(op);
-    if (op.getResult().getType().isa<IndexType>()) {
+    if (llvm::isa<IndexType>(op.getResult().getType())) {
       auto newOp = rewriter.create<ConstantIntOp>(
-          op->getLoc(), value.cast<IntegerAttr>().getInt(), 32);
+          op->getLoc(), llvm::cast<IntegerAttr>(value).getInt(), 32);
       rewriter.replaceOp(op, newOp.getResult());
       return success();
     }
@@ -49,10 +48,11 @@ struct YieldOpConversion : public OpConversionPattern<scf::YieldOp> {
   using OpConversionPattern<scf::YieldOp>::OpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(scf::YieldOp op, ArrayRef<Value> operands,
+  matchAndRewrite(scf::YieldOp op, scf::YieldOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    auto operands = adaptor.getOperands();
     for (auto opr : operands)
-      if (opr.getType().isa<IndexType>())
+      if (llvm::isa<IndexType>(opr.getType()))
         return failure();
 
     rewriter.setInsertionPoint(op);
@@ -67,10 +67,11 @@ struct IfOpConversion : public OpConversionPattern<scf::IfOp> {
   using OpConversionPattern<scf::IfOp>::OpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(scf::IfOp op, ArrayRef<Value> operands,
+  matchAndRewrite(scf::IfOp op, scf::IfOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    auto operands = adaptor.getOperands();
     for (auto opr : operands)
-      if (opr.getType().isa<IndexType>())
+      if (llvm::isa<IndexType>(opr.getType()))
         return failure();
 
     rewriter.setInsertionPoint(op);
@@ -78,19 +79,21 @@ struct IfOpConversion : public OpConversionPattern<scf::IfOp> {
     SmallVector<Type, 4> resultTypes(op.getResultTypes());
 
     for (auto &type : resultTypes)
-      if (type.isa<IndexType>())
+      if (llvm::isa<IndexType>(type))
         type = IntegerType::get(getContext(), 32);
 
     auto newOp = rewriter.create<tor::IfOp>(op.getLoc(), resultTypes,
                                              operands[0], 0, 0);
 
     rewriter.createBlock(&newOp.thenRegion());
-    rewriter.inlineRegionBefore(op.thenRegion(), &newOp.thenRegion().back());
+    rewriter.inlineRegionBefore(op.getThenRegion(),
+                                &newOp.thenRegion().back());
     rewriter.eraseBlock(&newOp.thenRegion().back());
 
-    if (!op.elseRegion().empty()) {
+    if (!op.getElseRegion().empty()) {
       rewriter.createBlock(&newOp.elseRegion());
-      rewriter.inlineRegionBefore(op.elseRegion(), &newOp.elseRegion().back());
+      rewriter.inlineRegionBefore(op.getElseRegion(),
+                                  &newOp.elseRegion().back());
       rewriter.eraseBlock(&newOp.elseRegion().back());
     }
 
@@ -104,10 +107,11 @@ struct CondOpConversion : public OpConversionPattern<scf::ConditionOp> {
   using OpConversionPattern<scf::ConditionOp>::OpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(scf::ConditionOp op, ArrayRef<Value> operands,
+  matchAndRewrite(scf::ConditionOp op, scf::ConditionOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    auto operands = adaptor.getOperands();
     for (auto opr : operands)
-      if (opr.getType().isa<IndexType>())
+      if (llvm::isa<IndexType>(opr.getType()))
         return failure();
 
     rewriter.create<tor::ConditionOp>(op.getLoc(), operands[0],
@@ -123,15 +127,16 @@ struct WhileOpConversion : public OpConversionPattern<scf::WhileOp> {
   using OpConversionPattern<scf::WhileOp>::OpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(scf::WhileOp op, ArrayRef<Value> operands,
+  matchAndRewrite(scf::WhileOp op, scf::WhileOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    auto operands = adaptor.getOperands();
     for (auto opr : operands)
-      if (opr.getType().isa<IndexType>())
+      if (llvm::isa<IndexType>(opr.getType()))
         return failure();
 
     SmallVector<Type, 4> resultTypes(op.getResultTypes());
     for (auto &type : resultTypes)
-      if (type.isa<IndexType>())
+      if (llvm::isa<IndexType>(type))
         type = IntegerType::get(getContext(), 32);
 
     rewriter.setInsertionPoint(op);
@@ -150,9 +155,9 @@ struct WhileOpConversion : public OpConversionPattern<scf::WhileOp> {
                                               mlir::IntegerType::Signless),
                        0));
 
-    rewriter.inlineRegionBefore(op.before(), newOp.before(),
+    rewriter.inlineRegionBefore(op.getBefore(), newOp.before(),
                                 newOp.before().begin());
-    rewriter.inlineRegionBefore(op.after(), newOp.after(),
+    rewriter.inlineRegionBefore(op.getAfter(), newOp.after(),
                                 newOp.after().begin());
     rewriter.replaceOp(op, newOp.getResults());
 
@@ -164,10 +169,11 @@ struct ForOpConversion : public OpConversionPattern<scf::ForOp> {
   using OpConversionPattern<scf::ForOp>::OpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(scf::ForOp op, ArrayRef<Value> operands,
+  matchAndRewrite(scf::ForOp op, scf::ForOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    auto operands = adaptor.getOperands();
     for (auto opr : operands)
-      if (opr.getType().isa<IndexType>())
+      if (llvm::isa<IndexType>(opr.getType()))
         return failure();
 
     rewriter.setInsertionPoint(op);
@@ -195,12 +201,12 @@ struct ForOpConversion : public OpConversionPattern<scf::ForOp> {
                                               mlir::IntegerType::Signless),
                        0));
 
-    rewriter.inlineRegionBefore(op.region(), newOp.region(),
+    rewriter.inlineRegionBefore(op.getRegion(), newOp.region(),
                                 newOp.region().begin());
 
     for (auto pair : llvm::zip(newOp.getBody()->getArguments(),
                                newOp.getBody()->getArgumentTypes()))
-      if (std::get<1>(pair).isa<IndexType>())
+      if (llvm::isa<IndexType>(std::get<1>(pair)))
         std::get<0>(pair).setType(IntegerType::get(getContext(), 32));
 
     rewriter.replaceOp(op, newOp.getResults());
@@ -212,10 +218,11 @@ struct ForOpConversion : public OpConversionPattern<scf::ForOp> {
 struct CallOpConversion : public OpConversionPattern<mlir::CallOp> {
   using OpConversionPattern<CallOp>::OpConversionPattern;
   LogicalResult
-  matchAndRewrite(mlir::CallOp op, ArrayRef<Value> operands,
+  matchAndRewrite(mlir::CallOp op, mlir::CallOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    auto operands = adaptor.getOperands();
     for (auto opr : operands)
-      if (opr.getType().isa<IndexType>())
+      if (llvm::isa<IndexType>(opr.getType()))
         return failure();
 
     rewriter.setInsertionPoint(op);
@@ -231,19 +238,20 @@ struct BinIOpConversion : public OpConversionPattern<SourceOp> {
   using OpConversionPattern<SourceOp>::OpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(SourceOp op, ArrayRef<Value> operands,
+  matchAndRewrite(SourceOp op, typename SourceOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    auto operands = adaptor.getOperands();
     assert(operands.size() == 2 && "addi has two operand");
 
     for (auto opr : operands)
-      if (opr.getType().isa<IndexType>())
+      if (llvm::isa<IndexType>(opr.getType()))
         return failure();
 
     rewriter.setInsertionPoint(op);
 
     TargetOp newOp;
 
-    if (op.getResult().getType().template isa<IndexType>())
+    if (llvm::isa<IndexType>(op.getResult().getType()))
       newOp = rewriter.create<TargetOp>(op.getLoc(), operands[0], operands[1]);
     else
       newOp = rewriter.create<TargetOp>(op.getLoc(), op.getResult().getType(),
@@ -260,8 +268,9 @@ struct BinFOpConversion : public OpConversionPattern<SourceOp> {
   using OpConversionPattern<SourceOp>::OpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(SourceOp op, ArrayRef<Value> operands,
+  matchAndRewrite(SourceOp op, typename SourceOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    auto operands = adaptor.getOperands();
     rewriter.setInsertionPoint(op);
 
     TargetOp newOp = rewriter.create<TargetOp>(
@@ -284,16 +293,18 @@ using DivFOpConversion = BinFOpConversion<DivFOp, tor::DivFOp>;
 struct CmpIOpConversion : public OpConversionPattern<CmpIOp> {
   using OpConversionPattern<CmpIOp>::OpConversionPattern;
   LogicalResult
-  matchAndRewrite(CmpIOp op, ArrayRef<Value> operands,
+  matchAndRewrite(CmpIOp op, CmpIOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    auto operands = adaptor.getOperands();
     assert(operands.size() == 2 && "addi has two operand");
 
     for (auto opr : operands)
-      if (opr.getType().isa<IndexType>())
+      if (llvm::isa<IndexType>(opr.getType()))
         return failure();
 
     rewriter.setInsertionPoint(op);
-    auto predicate = static_cast<mlir::tor::CmpIPredicate>(op.predicate());
+    auto predicate =
+        static_cast<mlir::tor::CmpIPredicate>(op.getPredicate());
     auto newOp = rewriter.create<tor::CmpIOp>(
         op.getLoc(), op.getResult().getType(), predicate, operands[0],
         operands[1], 0, 0);
@@ -307,12 +318,14 @@ struct CmpIOpConversion : public OpConversionPattern<CmpIOp> {
 struct CmpFOpConversion : public OpConversionPattern<CmpFOp> {
   using OpConversionPattern<CmpFOp>::OpConversionPattern;
   LogicalResult
-  matchAndRewrite(CmpFOp op, ArrayRef<Value> operands,
+  matchAndRewrite(CmpFOp op, CmpFOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    auto operands = adaptor.getOperands();
     assert(operands.size() == 2 && "cmpf has two operand");
 
     rewriter.setInsertionPoint(op);
-    auto predicate = static_cast<mlir::tor::CmpFPredicate>(op.predicate());
+    auto predicate =
+        static_cast<mlir::tor::CmpFPredicate>(op.getPredicate());
     auto newOp = rewriter.create<tor::CmpFOp>(
         op.getLoc(), op.getResult().getType(), predicate, operands[0],
         operands[1], 0, 0);
@@ -326,9 +339,10 @@ struct CmpFOpConversion : public OpConversionPattern<CmpFOp> {
 struct CastOpErasure : public OpConversionPattern<IndexCastOp> {
   using OpConversionPattern<IndexCastOp>::OpConversionPattern;
   LogicalResult
-  matchAndRewrite(IndexCastOp op, ArrayRef<Value> operands,
+  matchAndRewrite(IndexCastOp op, IndexCastOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    if (operands[0].getType().isa<IndexType>())
+    auto operands = adaptor.getOperands();
+    if (llvm::isa<IndexType>(operands[0].getType()))
       return failure();
 
     rewriter.replaceOp(op, operands);
@@ -339,12 +353,13 @@ struct CastOpErasure : public OpConversionPattern<IndexCastOp> {
 struct ShiftLeftConversionPattern : public OpConversionPattern<ShiftLeftOp> {
   using OpConversionPattern<ShiftLeftOp>::OpConversionPattern;
   LogicalResult
-  matchAndRewrite(ShiftLeftOp op, ArrayRef<Value> operands,
+  matchAndRewrite(ShiftLeftOp op, ShiftLeftOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    auto operands = adaptor.getOperands();
     for (auto opr : operands)
-      if (opr.getType().isa<IndexType>())
+      if (llvm::isa<IndexType>(opr.getType()))
         return failure();
-    if (!op.getResult().getType().isa<IndexType>())
+    if (!llvm::isa<IndexType>(op.getResult().getType()))
       return failure();
 
     auto newOp =
@@ -360,18 +375,18 @@ struct FuncArgCovnersion : public OpConversionPattern<tor::FuncOp> {
   using OpConversionPattern<tor::FuncOp>::OpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(tor::FuncOp op, ArrayRef<Value> operands,
+  matchAndRewrite(tor::FuncOp op, tor::FuncOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     SmallVector<Type, 4> newInputTypes;
     for (auto type : op.getType().getInputs())
-      if (type.isa<IndexType>())
+      if (llvm::isa<IndexType>(type))
         newInputTypes.push_back(IntegerType::get(getContext(), 32));
       else
         newInputTypes.push_back(type);
 
-    rewriter.updateRootInPlace(op, [&] {
+    rewriter.modifyOpInPlace(op, [&] {
       for (auto arg : op.getArguments())
-        if (arg.getType().isa<IndexType>())
+        if (llvm::isa<IndexType>(arg.getType()))
           arg.setType(IntegerType::get(getContext(), 32));
       op.setType(FunctionType::get(getContext(), newInputTypes,
                                    op.getType().getResults()));
@@ -407,12 +422,14 @@ void IterativeConstantFolding(mlir::tor::FuncOp funcOp,
         mlir::Operation *op;
         if (sitofOp.getResult().getType().isF32())
           op = rewriter.create<mlir::ConstantFloatOp>(
-              sitofOp.getLoc(), mlir::APFloat((float)val.roundToDouble()),
-              sitofOp.getResult().getType().cast<mlir::FloatType>());
+              sitofOp.getLoc(),
+              llvm::cast<mlir::FloatType>(sitofOp.getResult().getType()),
+              mlir::APFloat((float)val.roundToDouble()));
         else
           op = rewriter.create<mlir::ConstantFloatOp>(
-              sitofOp.getLoc(), mlir::APFloat(val.roundToDouble()),
-              sitofOp.getResult().getType().cast<mlir::FloatType>());
+              sitofOp.getLoc(),
+              llvm::cast<mlir::FloatType>(sitofOp.getResult().getType()),
+              mlir::APFloat(val.roundToDouble()));
 
         auto constOp = llvm::dyn_cast<mlir::ConstantOp>(op);
         rewriter.replaceOp(sitofOp, constOp.getResult());
@@ -440,7 +457,8 @@ struct ConstantFoldingPattern : OpRewritePattern<tor::FuncOp> {
 struct MoveConstantUp : OpRewritePattern<ConstantOp> {
   using OpRewritePattern<ConstantOp>::OpRewritePattern;
 
-  LogicalResult matchAndRewrite(ConstantOp op, PatternRewriter &rewriter) {
+  LogicalResult matchAndRewrite(ConstantOp op,
+                                PatternRewriter &rewriter) const override {
     if (llvm::isa<tor::DesignOp>(op->getParentOp()))
       return failure();
 
@@ -459,7 +477,7 @@ struct MoveConstantUp : OpRewritePattern<ConstantOp> {
   }
 };
 
-struct SCFToTORPass : SCFToTORBase<SCFToTORPass> {
+struct SCFToTORPass : impl::SCFToTORBase<SCFToTORPass> {
   void runOnOperation() override {
     auto designOp = getOperation();
 
@@ -467,7 +485,8 @@ struct SCFToTORPass : SCFToTORBase<SCFToTORPass> {
       designOp.walk([&](tor::FuncOp op) {
         RewritePatternSet rPatterns(&getContext());
         rPatterns.insert<ConstantFoldingPattern>(&getContext());
-        if (failed(applyOpPatternsAndFold(op, std::move(rPatterns))))
+        SmallVector<Operation *> ops{op.getOperation()};
+        if (failed(applyOpPatternsAndFold(ops, std::move(rPatterns))))
           WalkResult::interrupt();
         WalkResult::advance();
       });
@@ -480,18 +499,18 @@ struct SCFToTORPass : SCFToTORBase<SCFToTORPass> {
       target.addLegalDialect<tor::TORDialect>();
       target.addDynamicallyLegalOp<ShiftLeftOp>([](ShiftLeftOp op) {
         llvm::outs() << "GOOD\n";
-        if (op.getResult().getType().isa<IndexType>())
+        if (llvm::isa<IndexType>(op.getResult().getType()))
           return false;
         return true;
       });
       target.addDynamicallyLegalOp<ConstantOp>([](ConstantOp op) {
-        if (op.getResult().getType().isa<IndexType>())
+        if (llvm::isa<IndexType>(op.getResult().getType()))
           return false;
         return true;
       });
       target.addDynamicallyLegalOp<tor::FuncOp>([](tor::FuncOp op) {
         for (auto type : op.getArgumentTypes())
-          if (type.isa<IndexType>())
+          if (llvm::isa<IndexType>(type))
             return false;
         return true;
       });
@@ -514,7 +533,8 @@ struct SCFToTORPass : SCFToTORBase<SCFToTORPass> {
               .walk([&](ConstantOp op) {
                 RewritePatternSet patterns(&getContext());
                 patterns.insert<MoveConstantUp>(&getContext());
-                if (failed(applyOpPatternsAndFold(op, std::move(patterns))))
+                SmallVector<Operation *> ops{op.getOperation()};
+                if (failed(applyOpPatternsAndFold(ops, std::move(patterns))))
                   return WalkResult::interrupt();
                 return WalkResult::advance();
               })

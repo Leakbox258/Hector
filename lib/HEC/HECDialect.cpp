@@ -9,6 +9,8 @@
 using namespace mlir;
 using namespace mlir::hec;
 
+#include "HEC/HECDialect.cpp.inc"
+
 void HECDialect::initialize()
 {
   registerTypes();

@@ -68,6 +68,7 @@ def TOR_MemRef : TOR_Type<"MemRef", "mlir::tor::BaseMemRefType"> {
 
   let skipDefaultBuilders = 1;
   let genVerifyDecl = 1;
+  let hasCustomAssemblyFormat = 1;
 }
 
 //===----------------------------------------------------------------------===//
@@ -76,7 +77,7 @@ def TOR_MemRef : TOR_Type<"MemRef", "mlir::tor::BaseMemRefType"> {
 
 def Bool : I<1>;
 
-def IsTORMemRefTypePred : CPred<"$_self.isa<::mlir::tor::MemRefType>()">;
+def IsTORMemRefTypePred : CPred<"::llvm::isa<::mlir::tor::MemRefType>($_self)">;
 // A container type is a type that has another type embedded within it.
 class TORContainerType<Type etype, Pred containerPred, code elementTypeCall,
                     string descr, string cppClassName = "::mlir::tor::Type"> :
@@ -98,7 +99,7 @@ class TORShapedContainerType<list<Type> allowedTypes,
                           Pred containerPred, string descr,
                           string cppClassName = "::mlir::Type"> :
     TORContainerType<AnyTypeOf<allowedTypes>, containerPred,
-                  "$_self.cast<::mlir::tor::ShapedType>().getElementType()", descr,
+                  "::llvm::cast<::mlir::tor::ShapedType>($_self).getElementType()", descr,
                   cppClassName>;
 
 

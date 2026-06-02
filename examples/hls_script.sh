@@ -1,3 +1,5 @@
+#!/bin/bash
+
 PROJECT_DIR=`pwd`
 BIN=`realpath ./$1`
 KERNEL_DIR=`realpath ./$2`

@@ -187,7 +187,7 @@ public:
   int getPartitionIndicies() {
     assert(hasFixedMemoryBank());
 
-    tor::MemRefType type = memref.getType().dyn_cast<tor::MemRefType>();
+    tor::MemRefType type = llvm::dyn_cast<tor::MemRefType>(memref.getType());
 
     auto shape = type.getShape();
     auto property = type.getProperty();

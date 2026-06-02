@@ -1,26 +1,25 @@
 #include "HEC/PassDetail.h"
-#include "mlir/Analysis/Utils.h"
+#include "mlir/Dialect/Affine/Analysis/Utils.h"
 #include "llvm/ADT/MapVector.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
 
-#include "mlir/Dialect/SCF/SCF.h"
-#include "mlir/Dialect/StandardOps/IR/Ops.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "TOR/TOR.h"
 #include "TOR/TORDialect.h"
 #include "HEC/HEC.h"
 #include "HEC/HECDialect.h"
 
 #include "mlir/Pass/Pass.h"
-#include "mlir/IR/BlockAndValueMapping.h"
+#include "mlir/IR/IRMapping.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/PatternMatch.h"
 #include <mlir/Transforms/DialectConversion.h>
 #include "mlir/Transforms/Passes.h"
-#include "mlir/Transforms/Utils.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "mlir/Analysis/Liveness.h"
 
@@ -133,7 +132,10 @@ namespace mlir {
         }
 
         void livenessAnalysis(Operation *op) {
-#define LIVE_INSERT(VAL) if(VAL.isa<BlockArgument>()||(!isa<tor::AllocOp>(VAL.getDefiningOp())))livein.insert(VAL);
+#define LIVE_INSERT(VAL)                                                       \
+  if (llvm::isa<BlockArgument>(VAL) ||                                         \
+      !isa<tor::AllocOp>((VAL).getDefiningOp()))                               \
+    livein.insert(VAL);
             if (!op || isa<ConstantOp>(op))
                 return;
             auto &livein = liveins[op];
@@ -162,14 +164,14 @@ namespace mlir {
                         if (!val) {
                             continue;
                         }
-                        if (val.val.isa<BlockArgument>()) {
-                            auto arg = val.val.cast<BlockArgument>();
+                        if (llvm::isa<BlockArgument>(val.val)) {
+                            auto arg = llvm::cast<BlockArgument>(val.val);
                             if (arg.getOwner()->getParentOp() != forOp) {
                                 livein.insert(val);
                             }
                             continue;
                         }
-                        if (!val.val.isa<BlockArgument>() && isa<ConstantOp>(val.val.getDefiningOp())) {
+                        if (!llvm::isa<BlockArgument>(val.val) && isa<ConstantOp>(val.val.getDefiningOp())) {
                             continue;
                         }
                         if (collect_ops.find(val.val.getDefiningOp()) == collect_ops.end()) {
@@ -231,14 +233,14 @@ namespace mlir {
                             if (!val) {
                                 continue;
                             }
-                            if (val.val.isa<BlockArgument>()) {
-                                auto arg = val.val.cast<BlockArgument>();
+                            if (llvm::isa<BlockArgument>(val.val)) {
+                                auto arg = llvm::cast<BlockArgument>(val.val);
                                 if (arg.getOwner()->getParentOp() != ifOp) {
                                     livein.insert(val);
                                 }
                                 continue;
                             }
-                            if (!val.val.isa<BlockArgument>() && isa<ConstantOp>(val.val.getDefiningOp())) {
+                            if (!llvm::isa<BlockArgument>(val.val) && isa<ConstantOp>(val.val.getDefiningOp())) {
                                 continue;
                             }
                             if (collect_ops.find(val.val.getDefiningOp()) == collect_ops.end()) {
@@ -281,8 +283,8 @@ namespace mlir {
             }
 //            for (auto &op : funcOp.getRegion().front()) {
 //                for (auto val : op.getOperands()) {
-//                    if (val.isa<BlockArgument>()) {
-//                        auto arg = val.cast<BlockArgument>();
+//                    if (llvm::isa<BlockArgument>(val)) {
+//                        auto arg = llvm::cast<BlockArgument>(val);
 //                        if (arg.getOwner()->getParentOp() != funcOp) {
 //                            livein.insert(val);
 //                        }
@@ -306,8 +308,8 @@ namespace mlir {
                     if (!val) {
                         continue;
                     }
-                    if (val.val.isa<BlockArgument>()) {
-                        auto arg = val.val.cast<BlockArgument>();
+                    if (llvm::isa<BlockArgument>(val.val)) {
+                        auto arg = llvm::cast<BlockArgument>(val.val);
                         if (arg.getOwner()->getParentOp() != funcOp) {
                             livein.insert(val);
                         }
@@ -509,7 +511,10 @@ namespace mlir {
                     hec_operation[std::make_pair(forOp, arg)] = branch.getResult(2);
 
                 }
-#define LIVE_INSERT(VAL) if(VAL.isa<BlockArgument>()||(!isa<tor::AllocOp>(VAL.getDefiningOp())))livein.insert(VAL);
+#define LIVE_INSERT(VAL)                                                       \
+  if (llvm::isa<BlockArgument>(VAL) ||                                         \
+      !isa<tor::AllocOp>((VAL).getDefiningOp()))                               \
+    livein.insert(VAL);
                 std::set<Liveness> livein;
 //                livein.insert(control_signal);
                 std::set<Operation *> collect_ops;
@@ -525,14 +530,14 @@ namespace mlir {
                         if (!val) {
                             continue;
                         }
-                        if (val.val.isa<BlockArgument>()) {
-                            auto arg = val.val.cast<BlockArgument>();
+                        if (llvm::isa<BlockArgument>(val.val)) {
+                            auto arg = llvm::cast<BlockArgument>(val.val);
                             if (arg.getOwner()->getParentOp() != forOp) {
                                 livein.insert(val);
                             }
                             continue;
                         }
-                        if (!val.val.isa<BlockArgument>() && isa<ConstantOp>(val.val.getDefiningOp())) {
+                        if (!llvm::isa<BlockArgument>(val.val) && isa<ConstantOp>(val.val.getDefiningOp())) {
                             continue;
                         }
                         if (collect_ops.find(val.val.getDefiningOp()) == collect_ops.end()) {
@@ -653,7 +658,7 @@ namespace mlir {
                                 }
                                 continue;
                             }
-                            if (pair.first.second.val.isa<BlockArgument>()) {
+                            if (llvm::isa<BlockArgument>(pair.first.second.val)) {
                                 continue;
                             }
                             /*if (pair.first.second.val.getDefiningOp()->getParentOp() != forOp) {
@@ -733,7 +738,7 @@ namespace mlir {
                                     if (!pair.first.second) {
                                         continue;
                                     }
-                                    if (pair.first.second.val.isa<BlockArgument>()) {
+                                    if (llvm::isa<BlockArgument>(pair.first.second.val)) {
                                         continue;
                                     }
 /*
@@ -892,10 +897,10 @@ namespace mlir {
                 else CREATE_PRIMITIVE(tor::DivFOp, "div_float", "divf_")
                 else CREATE_PRIMITIVE(TruncateIOp, "trunc_integer", "trunci_")
                 else CREATE_PRIMITIVE(tor::CmpIOp,
-                                      std::string("cmp_integer_") + tor::stringifyEnum(tor_op.predicate()).str(),
+                                      std::string("cmp_integer_") + tor::stringifyEnum(tor_op.getPredicate()).str(),
                                       "cmpi_")
                 else CREATE_PRIMITIVE(tor::CmpFOp,
-                                      std::string("cmp_float_") + tor::stringifyEnum(tor_op.predicate()).str(),
+                                      std::string("cmp_float_") + tor::stringifyEnum(tor_op.getPredicate()).str(),
                                       "cmpf_")
                 else CREATE_PRIMITIVE(ShiftLeftOp, "shift_left", "shr_")
                 else CREATE_PRIMITIVE(SelectOp, "select", "select_")
@@ -911,8 +916,8 @@ namespace mlir {
                 for (auto val : op->getOperands()) {
 //                    get_value(op, val).
                     auto tmp = get_value(op, val, rewriter);
-                    if (tmp.isa<OpResult>()) {
-                        auto result = tmp.cast<OpResult>();
+                    if (llvm::isa<OpResult>(tmp)) {
+                        auto result = llvm::cast<OpResult>(tmp);
                         std::cerr << result.getResultNumber() << " :: ";
                     }
                     tmp.dump();
@@ -943,7 +948,10 @@ namespace mlir {
                         return 30;
                     }
                 } else if (auto instanceOp = dyn_cast<hec::InstanceOp>(op)) {
-                    int latency = instanceOp.getReferencedComponent()->getAttr("latency").cast<IntegerAttr>().getInt();
+                    int latency = llvm::cast<IntegerAttr>(
+                                      instanceOp.getReferencedComponent()
+                                          ->getAttr("latency"))
+                                      .getInt();
                     return latency;
                 }
                 return 0;
@@ -966,7 +974,7 @@ namespace mlir {
             }
             for (auto &op : *(component.getGraphOp().getBody())) {
                 if (auto assignOp = dyn_cast<hec::AssignOp>(op)) {
-                    if (assignOp.src().isa<BlockArgument>()) {
+                    if (llvm::isa<BlockArgument>(assignOp.src())) {
                         time[assignOp.dest().getDefiningOp()] = 0;
                         continue;
                     }
@@ -1018,7 +1026,7 @@ namespace mlir {
 //            exit(-1);
 //            for (auto &op : *(component.getGraphOp().getBody())) {
 //                if (auto primitive = dyn_cast<hec::AssignOp>(op)) {
-//                    if (primitive.src().isa<BlockArgument>()) {
+//                    if (llvm::isa<BlockArgument>(primitive.src())) {
 //                        continue;
 //                    }
 //                    graph[primitive.dest().getDefiningOp()].push_back(primitive.src().getDefiningOp());
@@ -1121,7 +1129,7 @@ namespace mlir {
                         if (!pair.first.second) {
                             continue;
                         }
-                        if (pair.first.second.val.isa<BlockArgument>()) {
+                        if (llvm::isa<BlockArgument>(pair.first.second.val)) {
                             continue;
                         }
                         if (pair.first.second.val.getDefiningOp()->getParentOp() != funcOp) {
@@ -1257,7 +1265,8 @@ namespace mlir {
                     }
                 }
                 if (funcOp->hasAttr("strategy")) {
-                    if (auto str = funcOp->getAttr("strategy").dyn_cast<StringAttr>()) {
+                    if (auto str = llvm::dyn_cast<StringAttr>(
+                            funcOp->getAttr("strategy"))) {
                         if (str.getValue() == "dynamic") {
                             if (funcOp->hasAttr("Dynamic")) {
                                 return failure();
@@ -1316,7 +1325,7 @@ namespace mlir {
 #undef TIME_NODE
     }
 
-    struct DynamicSchedulePass : public dynamicScheduleBase<DynamicSchedulePass> {
+    struct DynamicSchedulePass : public impl::dynamicScheduleBase<DynamicSchedulePass> {
         void runOnOperation() override {
             mlir::ModuleOp m = getOperation();
 
@@ -1324,7 +1333,8 @@ namespace mlir {
                         mlir::RewritePatternSet patterns(&getContext());
                         patterns.insert<dynamic::DynamicSchedule>(op.getContext());
 
-                        if (failed(applyOpPatternsAndFold(op, std::move(patterns))))
+                        SmallVector<Operation *> ops{op.getOperation()};
+                        if (failed(applyOpPatternsAndFold(ops, std::move(patterns))))
                             return WalkResult::advance();
 //                            return WalkResult::interrupt();
 

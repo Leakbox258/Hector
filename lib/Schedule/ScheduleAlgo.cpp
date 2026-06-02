@@ -4,7 +4,7 @@
 
 #include "TOR/TOR.h"
 #include "Schedule/CDFG.h"
-#include "mlir/Dialect/StandardOps/IR/Ops.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/IR/BuiltinOps.h"
 
 #include "Schedule/ScheduleAlgo.h"
