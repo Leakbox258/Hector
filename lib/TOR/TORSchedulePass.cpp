@@ -188,7 +188,6 @@ public:
         continue;
       auto &e = redge[i][0];
       if (e.ds == "static" && e.length == 0) {
-        llvm::outs() << i << " " << e.ds << " " << e.length << "\n";
         dset.merge(i, e.from);
       }
     }
@@ -204,8 +203,6 @@ public:
     for (int i = 0; i < numNode; ++i)
       if (dset.find(i) != i)
         newId[i] = newId[dset.find(i)];
-
-    llvm::outs() << numNode << " " << reducedNum << "\n";
 
     std::vector<std::vector<Edge>> oldedges(std::move(edge));
     std::vector<std::vector<Edge>> oldredges(std::move(redge));
@@ -404,7 +401,6 @@ mlir::LogicalResult scheduleOps(mlir::tor::FuncOp funcOp,
 {
   using namespace scheduling;
   if (auto strategy = funcOp->getAttrOfType<StringAttr>("strategy")) {
-    llvm::outs() << funcOp->getName() << " is dynamic. No static scheduling\n";
     if (strategy.getValue().str() == "dynamic")
       return mlir::success();
   }
@@ -412,14 +408,10 @@ mlir::LogicalResult scheduleOps(mlir::tor::FuncOp funcOp,
   std::unique_ptr<SDCSchedule> scheduler = 
       std::make_unique<SDCSchedule>(SDCSchedule(funcOp.getOperation()));
 
-  if (mlir::succeeded(scheduler->runSchedule()))
-    llvm::outs() << "Schedule Succeeded\n";
-  else {
-    llvm::outs() << "Schedule Failed\n";
+  if (mlir::failed(scheduler->runSchedule())) {
+    funcOp.emitError("scheduling failed");
     return mlir::failure();
   }
-
-  scheduler->printSchedule();
 
   TimeGraph *tg = new TimeGraph();
 

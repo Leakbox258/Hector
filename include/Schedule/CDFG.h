@@ -240,7 +240,6 @@ public:
           1); // the first index is the address in the memory bank
       partitionIndices = storeOp.getIndices().drop_front(1);
     }
-    llvm::outs() << partitionIndices.size() << "\n";
   }
 
   bool isMemOpConcrete() {

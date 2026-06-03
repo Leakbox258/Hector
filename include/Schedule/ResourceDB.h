@@ -1,6 +1,7 @@
 #ifndef SCHEDULE_RESOURCEDB_H
 #define SCHEDULE_RESOURCEDB_H
 
+#include "TOR.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/Operation.h"
@@ -109,7 +110,7 @@ public:
   bool hasResConstr(int id) { return Components[id].constr == true; }
 
   bool hasHardLimit(int id) { return Components[id].amount != -1; }
-  
+
   void addComponent(const Component &c) { Components.push_back(c); }
 
   ResourceDB() {
@@ -127,7 +128,7 @@ public:
       int amount = -1;
       int II = 0;
       bool constr = 0;
-      
+
       for (auto &item : info.items()) {
         if (item.key() == "delay") {
           for (auto &f : item.value().items())
@@ -139,8 +140,8 @@ public:
         } else if (item.key() == "II") {
           II = item.value().get<int>();
         } else if (item.key() == "constr") {
-	  constr = item.value().get<int>();
-	}
+          constr = item.value().get<int>();
+        }
       }
 
       addComponent(Component(name, delay, latency, II, constr, amount));

@@ -2,15 +2,11 @@
 #define HEC_DIALECT_H
 
 #include "HEC/LLVM.h"
-#include "mlir/IR/Dialect.h"
 #include "mlir/IR/BuiltinAttributes.h"
+#include "mlir/IR/Dialect.h"
 
-namespace mlir
-{
-  namespace hec
-  {
-
-  } // namespace hec
+namespace mlir {
+namespace hec {} // namespace hec
 } // namespace mlir
 
 // Pull in the dialect definition.

@@ -1,4 +1,3 @@
-
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
@@ -17,14 +16,15 @@
 #include "llvm/Support/SourceMgr.h"
 #include "llvm/Support/ToolOutputFile.h"
 
-#include "TOR/TORDialect.h"
-#include "TOR/Passes.h"
 #include "HEC/HECDialect.h"
 #include "HEC/Passes.h"
+#include "TOR/Passes.h"
+#include "TOR/TORDialect.h"
 
 int main(int argc, char **argv) {
-  // TODO: Register codesign passes here.
   mlir::registerAllPasses();
+  mlir::registerTORPasses();
+  mlir::registerHECPasses();
 
   mlir::DialectRegistry registry;
   registry.insert<mlir::affine::AffineDialect>();
@@ -35,8 +35,6 @@ int main(int argc, char **argv) {
   registry.insert<mlir::tor::TORDialect>();
   registry.insert<mlir::hec::HECDialect>();
 
-  mlir::registerTORPasses();
-  mlir::registerHECPasses();
   // Add the following to include *all* MLIR Core dialects, or selectively
   // include what you need like above. You only need to register dialects that
   // will be *parsed* by the tool, not the one generated

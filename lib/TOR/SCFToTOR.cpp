@@ -366,7 +366,6 @@ struct ShiftLeftConversionPattern : public OpConversionPattern<ShiftLeftOp> {
         rewriter.create<ShiftLeftOp>(op.getLoc(), operands[0], operands[1]);
 
     rewriter.replaceOp(op, newOp.getResult());
-    llvm::outs() << "Yeh!\n";
     return success();
   }
 };
@@ -498,7 +497,6 @@ struct SCFToTORPass : impl::SCFToTORBase<SCFToTORPass> {
 
       target.addLegalDialect<tor::TORDialect>();
       target.addDynamicallyLegalOp<ShiftLeftOp>([](ShiftLeftOp op) {
-        llvm::outs() << "GOOD\n";
         if (llvm::isa<IndexType>(op.getResult().getType()))
           return false;
         return true;

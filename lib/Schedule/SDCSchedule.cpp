@@ -39,7 +39,6 @@ int SDCSchedule::resourceMII(Loop *L) {
 
   for (int i = 1; i < ResourceKind; ++i)
     if (RDB.hasHardLimit(i)) {
-      llvm::outs() << RDB.getName(i) << " " << resPressure[i] << " " << RDB.getAmount(i) << "\n";
       resII = std::max(resII, resPressure[i] / (int)RDB.getAmount(i));
     }
 
@@ -397,7 +396,6 @@ bool SDCSchedule::getASAPTime(Loop *L, int II, SDCSolver *SDC) {
 }
 
 bool SDCSchedule::scheduleWithII(Loop *L, int II, bool FinalFlag) {
-  llvm::outs() << "Schedule with II: " << II << "\n";
   SDCSolver *SDC = new SDCSolver();
 
   allocVariable(L, SDC);
@@ -418,7 +416,6 @@ bool SDCSchedule::scheduleWithII(Loop *L, int II, bool FinalFlag) {
   if (resolveResConstraint(L, II, SDC) == false)
     return false;
 
-  llvm::outs() << "Succceed\n";
   if (FinalFlag) {
     minimizeLifetime(L, II, SDC);
 
@@ -440,13 +437,10 @@ bool SDCSchedule::pipelineLoop(Loop *L) {
 
   int recMII = recurrenceMII(L);
   int resMII = resourceMII(L);
-  llvm::outs() << "recMII: " << recMII << " resMII: " << resMII << "\n";
 
   if (L->TargetII >= std::max(recMII, resMII)) {
     /// first try target II
     if (scheduleWithII(L, L->TargetII, 1)) {
-      llvm::outs() << "Successful scheduled with TargetII: " << L->TargetII
-                   << "\n";
       L->AchievedII = L->TargetII;
       return true;
     }
@@ -466,12 +460,10 @@ bool SDCSchedule::pipelineLoop(Loop *L) {
   }
 
   if (achieved != -1) {
-    llvm::outs() << "Achieved II: " << achieved << "\n";
     L->AchievedII = achieved;
     scheduleWithII(L, achieved, 1);
     return true;
   } else {
-    llvm::outs() << "Failed to find a reasonable II\n";
     return false;
   }
 }
@@ -845,7 +837,6 @@ bool SDCSchedule::minimizeLifetimeFunction(int II, SDCSolver *SDC) {
 
   set_minim(lp);
   int ret = solve(lp);
-  llvm::outs() << ret << "\n";
   if (ret == INFEASIBLE)
     return false;
 
@@ -1005,7 +996,6 @@ bool SDCSchedule::resolveResourceConstraintFunction(int II, SDCSolver *SDC) {
 }
 
 bool SDCSchedule::pipelineFunctionWithII(int II, bool FinalFlag) {
-  llvm::outs() << "try II=" << II << "\n";
   SDCSolver *SDC = new SDCSolver();
   std::unordered_map<BasicBlock *, int> BeginBB;
   std::unordered_map<BasicBlock *, int> EndBB;
@@ -1064,12 +1054,6 @@ bool SDCSchedule::pipelineFunctionWithII(int II, bool FinalFlag) {
   if (minimizeLifetimeFunction(II, SDC) == false)
     return false;
   
-  for (auto &&sdcOp : SDCOperations) {
-    llvm::outs() << sdcOp->getOp()->getName() << " "
-		 << sdcOp->ASAPTime << " "
-		 << sdcOp->OptTime << "\n";
-  }
-      
   if (resolveResourceConstraintFunction(II, SDC) == false)
     return false;
   if (FinalFlag) {
@@ -1086,7 +1070,6 @@ bool SDCSchedule::pipelineFunction() {
   int targetII = containingOp->getAttrOfType<IntegerAttr>("II").getInt();
   containingOp->removeAttr("II");
   if (pipelineFunctionWithII(targetII, false)) {
-    llvm::outs() << "Achieved II: " << targetII << "\n";
     containingOp->setAttr(
         "II", IntegerAttr::get(IntegerType::get(containingOp->getContext(), 32),
                                targetII));    
@@ -1107,14 +1090,12 @@ bool SDCSchedule::pipelineFunction() {
   }
 
   if (achieved != -1) {
-    llvm::outs() << "Achieved II: " << achieved << "\n";
     containingOp->setAttr(
         "II", IntegerAttr::get(IntegerType::get(containingOp->getContext(), 32),
                                achieved));
     pipelineFunctionWithII(achieved, true);
     return true;
   } else {
-    llvm::outs() << "Failed to find a reasonable II\n";
     return false;
   }
 
@@ -1131,7 +1112,6 @@ LogicalResult SDCSchedule::runSchedule() {
     if (pipeline_flag.getValue().str() == "func") {
       if (pipelineFunction())
 	return success();
-      llvm::outs() << containingOp->getName() << ". Function pipelining failed!\n";
       return failure();
     }
   }

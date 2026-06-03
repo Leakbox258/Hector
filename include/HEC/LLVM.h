@@ -57,7 +57,7 @@ class OpFoldResult;
 class OpOperand;
 class OpResult;
 class OwningModuleRef;
-class ParseResult;
+// class ParseResult;
 class Pass;
 class PatternRewriter;
 class Region;
@@ -81,7 +81,7 @@ class VectorType;
 class WalkResult;
 enum class RegionKind;
 struct CallInterfaceCallable;
-struct LogicalResult;
+// struct LogicalResult;
 struct MemRefAccess;
 struct OperationState;
 

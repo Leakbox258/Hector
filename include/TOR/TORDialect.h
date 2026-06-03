@@ -2,8 +2,8 @@
 #define TOR_DIALECT_H
 
 #include "TOR/LLVM.h"
-#include "mlir/IR/Dialect.h"
 #include "mlir/IR/BuiltinAttributes.h"
+#include "mlir/IR/Dialect.h"
 
 namespace mlir {
 namespace tor {

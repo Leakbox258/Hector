@@ -15,8 +15,6 @@ void SDCSolver::addInitialConstraint(Constraint C) {
   assert(C.x < NumVariable);
   assert(C.y < NumVariable);
 
-//  C.dump();
-  C.dump();
   if (C.type == Constraint::Constr_EQ) {
     Edges[0].insert(Edge(C.x, C.c));
     Edges[C.x].insert(Edge(0, -C.c));
@@ -211,21 +209,17 @@ void SDCSolver::deleteConstraint(Constraint C) {
 
 int SDCSolver::verify() {
 
-  if (ValidFlag)
-    llvm::outs() << "Has feasible solution\n";
-  else {
-    llvm::outs() << "No feasible solution\n";
+  if (!ValidFlag)
     return 0;
-  }
 
   int flag = 1;
   for (int i = 0; i < NumVariable; ++i)
     for (auto &edge : Edges[i]) {
       if (Solution[edge.to] - Solution[i] < edge.length) {
-        llvm::outs() << "Require v" << edge.to << " - v" << i <<
+        llvm::errs() << "Require v" << edge.to << " - v" << i <<
             " >= " << edge.length << ". ";
-        llvm::outs() << "While v" << edge.to << ": " << Solution[edge.to] << ", v" << 
-            i << ": " << Solution[i] << "\n";
+        llvm::errs() << "While v" << edge.to << ": " << Solution[edge.to]
+                     << ", v" << i << ": " << Solution[i] << "\n";
 
         flag = -1;
       }
