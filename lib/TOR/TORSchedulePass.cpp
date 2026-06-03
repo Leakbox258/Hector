@@ -437,6 +437,9 @@ namespace mlir
     matchAndRewrite(mlir::tor::FuncOp funcOp,
                     PatternRewriter &rewriter) const override
     {
+      if (!funcOp.getBody().front().getOps<mlir::tor::TimeGraphOp>().empty())
+        return failure();
+
       llvm::SmallVector<NamedAttribute, 4> attributes;
       for (const auto &attr : funcOp->getAttrs())
       {
@@ -496,11 +499,11 @@ namespace mlir
       auto result = designOp.walk(
         [&] (tor::FuncOp op) {
           // IterativeConstantFolding(op);
-	  mlir::RewritePatternSet patterns(&getContext());
-	  patterns.insert<FuncOpLowering>(designOp.getContext());
+          mlir::RewritePatternSet patterns(&getContext());
+          patterns.insert<FuncOpLowering>(designOp.getContext());
           SmallVector<Operation *> ops{op.getOperation()};
           if (failed(applyOpPatternsAndFold(ops, std::move(patterns))))
-            WalkResult::interrupt();
+            return WalkResult::interrupt();
           return WalkResult::advance();
         }
       );

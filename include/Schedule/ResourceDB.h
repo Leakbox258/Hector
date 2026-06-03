@@ -1,7 +1,7 @@
 #ifndef SCHEDULE_RESOURCEDB_H
 #define SCHEDULE_RESOURCEDB_H
 
-#include "TOR.h"
+#include "TOR/TOR.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/Operation.h"

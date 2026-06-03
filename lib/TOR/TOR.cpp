@@ -77,7 +77,8 @@ static void print(::mlir::OpAsmPrinter &p, tor::FuncOp op)
   FunctionType funcType = op.getType();
   function_interface_impl::printFunctionOp(
       p, op, /*isVariadic=*/true,
-      op.getFunctionTypeAttrName(), {}, {});
+      op.getFunctionTypeAttrName(), StringAttr::get(op.getContext(), "arg_attrs"),
+      StringAttr::get(op.getContext(), "res_attrs"));
   //p.printOptionalAttrDict(op->getAttrs());
 }
 
@@ -92,7 +93,8 @@ static ::mlir::ParseResult parseFuncOp(::mlir::OpAsmParser &parser,
   };
   if (function_interface_impl::parseFunctionOp(
           parser, result, true, FuncOp::getFunctionTypeAttrName(result.name),
-          buildFuncType, {}, {}))
+          buildFuncType, parser.getBuilder().getStringAttr("arg_attrs"),
+          parser.getBuilder().getStringAttr("res_attrs")))
     return failure();
   // Parse the optional attribute list.
   if (parser.parseOptionalAttrDict(result.attributes))
