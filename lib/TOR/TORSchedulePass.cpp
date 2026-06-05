@@ -440,6 +440,11 @@ namespace mlir
       if (!funcOp.getBody().front().getOps<mlir::tor::TimeGraphOp>().empty())
         return failure();
 
+      if (auto strategy = funcOp->getAttrOfType<StringAttr>("strategy")) {
+        if (strategy.getValue().str() == "dynamic")
+          return failure();
+      }
+
       llvm::SmallVector<NamedAttribute, 4> attributes;
       for (const auto &attr : funcOp->getAttrs())
       {

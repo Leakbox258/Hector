@@ -66,7 +66,7 @@ static void printComponentOp(OpAsmPrinter &p, ComponentOp &op) {
     auto componentName =
             op->getAttrOfType<StringAttr>(SymbolTable::getSymbolAttrName())
                     .getValue();
-    p << "hec.component ";
+    p << ' ';
     p.printSymbolName(componentName);
 
     auto ports = getComponentPortInfo(op);
@@ -121,7 +121,7 @@ static void printComponentOp(OpAsmPrinter &p, ComponentOp &op) {
 
     p.printOptionalAttrDict(op->getAttrs(),
             /*elidedAttrs=*/{"interfc", "style", "numInPorts",
-                             "portNames", "sym_name", "type"});
+                             "portNames", "sym_name", "function_type"});
 }
 
 /// Parses the ports of a HEC component signature, and adds the corresponding
@@ -526,14 +526,10 @@ SmallVector<ComponentPortInfo> PrimitiveOp::getPrimitivePortInfo() {
         } else if (rw.getValue() == "w") {
             results.push_back({StringAttr::get((*this)->getContext(), "w_en"),
                                getType(0), PortDirection::INPUT});
-            // FIXME: Need to cope with r_en signal
-            //            results.push_back({StringAttr::get((*this)->getContext(),
-            //            "r_en"),
-            //                               getType(1), PortDirection::INPUT});
             results.push_back({StringAttr::get((*this)->getContext(), "addr"),
-                               getType(2), PortDirection::INPUT});
+                               getType(1), PortDirection::INPUT});
             results.push_back({StringAttr::get((*this)->getContext(), "w_data"),
-                               getType(3), PortDirection::INPUT});
+                               getType(2), PortDirection::INPUT});
         } else if (rw.getValue() == "rw") {
             results.push_back({StringAttr::get((*this)->getContext(), "w_en"),
                                getType(0), PortDirection::INPUT});
@@ -772,9 +768,8 @@ void PrimitiveOp::getAsmResultNames(OpAsmSetValueNameFn setNameFn) {
 
     std::string prefix = instanceName().str() + ".";
 
-    assert(portInfos.size() == getResults().size() &&
-           "# of results must meet the primitive");
-    for (size_t i = 0, e = portInfos.size(); i != e; ++i) {
+    for (size_t i = 0, e = std::min(portInfos.size(), getResults().size());
+         i != e; ++i) {
         StringRef portName = portInfos[i].name.getValue();
         setNameFn(getResult(i), prefix + portName.str());
     }
@@ -829,7 +824,7 @@ static void printStateOp(OpAsmPrinter &p, StateOp &op) {
     auto stateName =
             op->getAttrOfType<StringAttr>(SymbolTable::getSymbolAttrName())
                     .getValue();
-    p << "hec.state ";
+    p << ' ';
     p.printSymbolName(stateName);
 
     if (op.initial())
@@ -945,7 +940,7 @@ static void printStageOp(OpAsmPrinter &p, StageOp &op) {
     auto stageName =
             op->getAttrOfType<StringAttr>(SymbolTable::getSymbolAttrName())
                     .getValue();
-    p << "hec.stage ";
+    p << ' ';
     p.printSymbolName(stageName);
 
     p.printRegion(op.body(), /*printEntryBlockArgs=*/false,

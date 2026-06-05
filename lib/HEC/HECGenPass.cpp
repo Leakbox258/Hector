@@ -10,17 +10,17 @@
 #include <stack>
 #include <vector>
 
-#include "TOR/TOR.h"
-#include "TOR/TORDialect.h"
 #include "HEC/HEC.h"
 #include "HEC/HECDialect.h"
 #include "HEC/PassDetail.h"
+#include "TOR/TOR.h"
+#include "TOR/TORDialect.h"
 #include "mlir/Dialect/Affine/Analysis/Utils.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
-#include "mlir/IR/IRMapping.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
+#include "mlir/IR/IRMapping.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Pass/Pass.h"
@@ -3748,8 +3748,9 @@ public:
               component.getLoc(), // reg.getResult(0),
               registers[pipelineRegs[findVUD(arg).id].begin()->second]
                   .op.getResult(0),
-              component.getArgument(llvm::cast<BlockArgument>(forop.initArgs()[i])
-                                        .getArgNumber()));
+              component.getArgument(
+                  llvm::cast<BlockArgument>(forop.initArgs()[i])
+                      .getArgNumber()));
         } else {
           rewriter.create<hec::InitOp>(
               component.getLoc(), // reg.getResult(0),
@@ -4357,12 +4358,10 @@ void standardizeFunc(mlir::tor::FuncOp func, mlir::PatternRewriter &rewriter) {
   if (auto sop = llvm::dyn_cast<OpType>(op)) {                                 \
     auto startAttr = sop->getAttrOfType<IntegerAttr>("starttime");             \
     auto endAttr = sop->getAttrOfType<IntegerAttr>("endtime");                 \
-    sop->setAttr("starttime",                                                  \
-                 rewriter.getIntegerAttr(startAttr.getType(),                  \
-                                         dict[sop.starttime()]));              \
-    sop->setAttr("endtime",                                                    \
-                 rewriter.getIntegerAttr(endAttr.getType(),                    \
-                                         dict[sop.endtime()]));                \
+    sop->setAttr("starttime", rewriter.getIntegerAttr(startAttr.getType(),     \
+                                                      dict[sop.starttime()])); \
+    sop->setAttr("endtime", rewriter.getIntegerAttr(endAttr.getType(),         \
+                                                    dict[sop.endtime()]));     \
   }
     MODIFY(tor::AddIOp)
     MODIFY(tor::SubIOp)
@@ -4384,13 +4383,11 @@ void standardizeFunc(mlir::tor::FuncOp func, mlir::PatternRewriter &rewriter) {
   if (auto sop = llvm::dyn_cast<OpType>(op)) {                                 \
     auto startAttr = sop->getAttrOfType<IntegerAttr>("starttime");             \
     auto endAttr = sop->getAttrOfType<IntegerAttr>("endtime");                 \
-    sop->setAttr(                                                              \
-        "starttime",                                                           \
-        rewriter.getIntegerAttr(startAttr.getType(),                           \
-                                dict[startAttr.getInt()]));                    \
-    sop->setAttr(                                                              \
-        "endtime",                                                             \
-        rewriter.getIntegerAttr(endAttr.getType(), dict[endAttr.getInt()]));   \
+    sop->setAttr("starttime",                                                  \
+                 rewriter.getIntegerAttr(startAttr.getType(),                  \
+                                         dict[startAttr.getInt()]));           \
+    sop->setAttr("endtime", rewriter.getIntegerAttr(endAttr.getType(),         \
+                                                    dict[endAttr.getInt()]));  \
   }
     //    MODIFYSTD(CmpFOp)
     MODIFYSTD(AndOp)
@@ -4472,6 +4469,8 @@ int genComponents(mlir::tor::DesignOp design, mlir::PatternRewriter &rewriter,
       auto funcOp = llvm::dyn_cast<mlir::tor::FuncOp>(op);
       auto strategy = funcOp->getAttrOfType<StringAttr>("strategy");
       assert(strategy != nullptr);
+
+      // for option --dynamic-schedule, the pass already do the hec gen
       if (strategy.getValue() == "dynamic")
         continue;
 

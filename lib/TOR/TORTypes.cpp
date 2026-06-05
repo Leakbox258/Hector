@@ -360,7 +360,7 @@ namespace mlir
 
     void MemRefType::print(::mlir::AsmPrinter &printer) const
     {
-      printer << "memref<";
+      printer << "<";
       auto shape = getShape();
       printer << shape[0];
       for (auto dim : shape.drop_front())

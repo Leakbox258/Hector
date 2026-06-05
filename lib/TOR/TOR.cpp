@@ -74,7 +74,6 @@ void tor::FuncOp::build(::mlir::OpBuilder &odsBuilder,
 
 static void print(::mlir::OpAsmPrinter &p, tor::FuncOp op)
 {
-  FunctionType funcType = op.getType();
   function_interface_impl::printFunctionOp(
       p, op, /*isVariadic=*/true,
       op.getFunctionTypeAttrName(), StringAttr::get(op.getContext(), "arg_attrs"),
@@ -120,7 +119,6 @@ static ::mlir::LogicalResult verifyFuncOp(tor::FuncOp op)
 
 static void print(OpAsmPrinter &p, tor::ReturnOp op)
 {
-  p << "tor.return";
   if (op.getNumOperands() != 0)
   {
     p << ' ';
@@ -185,7 +183,7 @@ static LogicalResult verifyReturnOp(tor::ReturnOp op)
 static void print(OpAsmPrinter &p, TimeGraphOp op)
 {
 
-  p << TimeGraphOp::getOperationName() << " (" << op.starttime() << " to " << op.endtime() << ")";
+  p << " (" << op.starttime() << " to " << op.endtime() << ")";
 
   p.printRegion(op.region(),
                 /*printEntryBlockArgs=*/false,
@@ -243,7 +241,7 @@ static void print(OpAsmPrinter &p, IfOp op)
 {
   bool printBlockTerminators = false;
 
-  p << IfOp::getOperationName() << " " << op.condition()
+  p << " " << op.condition()
     << " on (" << op.starttime() << " to " << op.endtime() << ")";
 
   if (!op.results().empty())
@@ -372,7 +370,7 @@ static void printInitializationList(OpAsmPrinter &p,
 
 static void print(OpAsmPrinter &p, tor::ForOp op)
 {
-  p << op.getOperationName() << " " << op.getInductionVar() << " = "
+  p << " " << op.getInductionVar() << " = "
     << "(" << op.lowerBound() << " : " << op.lowerBound().getType() << ")"
     << " to " 
     << "(" << op.upperBound() << " : " << op.upperBound().getType() << ")" 
@@ -499,7 +497,6 @@ static LogicalResult verifyForOp(tor::ForOp op)
 static void print(OpAsmPrinter &p, tor::WhileOp op)
 {
 
-  p << op.getOperationName();
   printInitializationList(p, op.before().front().getArguments(), op.inits(),
                           " ");
   p.printNewline();
